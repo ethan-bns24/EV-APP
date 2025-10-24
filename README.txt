@@ -52,4 +52,5 @@ de personne avec le poids, l'utilisation de la clim ect pour etre plus précis e
 une option ou l'on rentre le pourcentage de batterie au départ et avec le pourcentage à la 
 fin combien de recharge on doit faire
 
-./launch.sh
+Lancer le code : ./launch.sh
+Clé API : eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0=
