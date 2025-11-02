@@ -14,26 +14,27 @@ from functools import lru_cache
 # ------------------------------
 st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_icon="🚗")
 
-# Ajouter des styles CSS personnalisés améliorés (version simplifiée pour éviter les conflits)
+# Ajouter des styles CSS personnalisés améliorés (design sobre et professionnel)
 st.markdown("""
 <style>
-    /* Fond avec gradient moderne */
+    /* Fond sobre et moderne */
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%) !important;
+        background: #f5f7fa !important;
         background-attachment: fixed;
     }
     
     /* Overlay pour le contenu principal */
     .main .block-container {
-        background: rgba(255, 255, 255, 0.95) !important;
+        background: #ffffff !important;
         padding: 2rem;
-        border-radius: 15px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
         margin-top: 1rem;
         margin-bottom: 2rem;
+        border: 1px solid #e1e8ed;
     }
     
-    /* Métriques améliorées */
+    /* Métriques améliorées - design sobre */
     div[data-testid="stMetricValue"],
     div[data-testid="stMetricLabel"],
     div[data-testid="stMetricDelta"] {
@@ -41,11 +42,17 @@ st.markdown("""
     }
     
     [data-testid="stMetricContainer"] {
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%) !important;
-        padding: 1.2rem;
-        border-radius: 12px;
-        border: 2px solid #e9ecef;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        background: #ffffff !important;
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 1px solid #e1e8ed;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        transition: all 0.2s ease;
+    }
+    
+    [data-testid="stMetricContainer"]:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        transform: translateY(-2px);
     }
     
     /* Messages d'information */
@@ -54,47 +61,70 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
     
-    /* Boutons améliorés */
+    /* Boutons améliorés - design sobre */
     .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        background: #2c3e50 !important;
         color: white !important;
         font-weight: 600;
         border: none !important;
         border-radius: 8px;
-        padding: 0.6rem 2rem;
+        padding: 0.7rem 2rem;
         transition: all 0.3s;
-        box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
+        box-shadow: 0 2px 8px rgba(44, 62, 80, 0.2);
     }
     
     .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+        background: #34495e !important;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(44, 62, 80, 0.3);
     }
     
-    /* Logo container */
+    /* Logo container - design sobre */
     .logo-container {
         text-align: center;
         margin-bottom: 2rem;
-        padding: 1.5rem;
-        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
-        border-radius: 15px;
+        padding: 2rem;
+        background: #ffffff;
+        border-radius: 12px;
+        border: 1px solid #e1e8ed;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     }
     
     .logo-emoji {
-        font-size: 5rem;
+        font-size: 4rem;
         margin-bottom: 0.5rem;
         display: block;
     }
     
-    /* Séparateurs stylisés */
+    .logo-container h1 {
+        color: #2c3e50;
+        font-weight: 700;
+    }
+    
+    .logo-container p {
+        color: #7f8c8d;
+    }
+    
+    /* Séparateurs stylisés - sobre */
     hr {
         border: none;
-        height: 3px;
-        background: linear-gradient(90deg, transparent, #667eea, transparent);
+        height: 1px;
+        background: #e1e8ed;
         margin: 2rem 0;
     }
     
-    /* Scrollbar personnalisée */
+    /* Titres améliorés */
+    h1, h2, h3 {
+        color: #2c3e50;
+    }
+    
+    /* Sidebar améliorée */
+    section[data-testid="stSidebar"] {
+        background: #ffffff;
+        border-right: 1px solid #e1e8ed;
+    }
+    
+    /* Scrollbar personnalisée - sobre */
     ::-webkit-scrollbar {
         width: 10px;
     }
@@ -105,8 +135,12 @@ st.markdown("""
     }
     
     ::-webkit-scrollbar-thumb {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: #bdc3c7;
         border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+        background: #95a5a6;
     }
     
     /* Tables améliorées */
