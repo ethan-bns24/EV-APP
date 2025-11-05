@@ -8,6 +8,7 @@ import pandas as pd
 from typing import List, Tuple, Dict, Optional
 import concurrent.futures
 from functools import lru_cache
+import os
 
 # ------------------------------
 # App Config
@@ -152,33 +153,33 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logo et header personnalisé
+# Custom logo and header
 st.markdown("""
 <div class="logo-container">
     <span class="logo-emoji">🚗🔋⚡</span>
-    <h1 style="margin: 0; color: #2c3e50;">Optimiseur de Vitesse pour Véhicules Électriques</h1>
+    <h1 style="margin: 0; color: #2c3e50;">EV Eco-Speed Optimizer</h1>
     <p style="margin-top: 0.5rem; color: #7f8c8d; font-size: 1.1rem;">
-        Planifiez vos trajets intelligemment en optimisant votre consommation énergétique
+        Plan trips intelligently by optimizing your energy consumption
     </p>
 </div>
 """, unsafe_allow_html=True)
 
-# Ajouter des informations sur les nouvelles fonctionnalités
-with st.expander("ℹ️ Nouveautés et fonctionnalités", expanded=False):
+# Add information about new features
+with st.expander("ℹ️ What's new and features", expanded=False):
     st.markdown("""
-        **✨ Améliorations récentes :**
-        - 👥 Prise en compte du **nombre de passagers et de leur poids**
-        - 🌡️ Paramétrage de la **climatisation** pour des calculs précis
-        - 🔋 **Planification des recharges** : pourcentages de batterie au départ et à l'arrivée
-        - 📊 **Graphiques améliorés** avec visualisation des données optimisées
-        - 🚦 **Nouveau : Limitations de vitesse par segment** : prise en compte automatique des limitations selon le type de route (autoroute 130 km/h, route nationale 90 km/h, ville 50 km/h, etc.)
-        - 🛣️ **Détection améliorée des carrefours** : identification précise des intersections, ronds-points et points de ralentissement
+        **✨ Recent improvements:**
+        - 👥 Consideration of the **number of passengers and their weight**
+        - 🌡️ **HVAC settings** for more accurate calculations
+        - 🔋 **Charging planning**: battery percentage at departure and arrival
+        - 📊 **Improved charts** with optimized data visualization
+        - 🚦 **New: Speed limits by segment**: automatic consideration of limits by road type (motorway 130 km/h, primary 90 km/h, city 50 km/h, etc.)
+        - 🛣️ **Improved intersection detection**: precise identification of intersections, roundabouts and slow-down points
         
-        Cet outil vous aide à :
-        - Maximiser l'autonomie de votre véhicule électrique
-        - Réduire vos coûts énergétiques
-        - Planifier vos arrêts de recharge
-        - Obtenir des estimations de consommation plus réalistes avec des vitesses adaptées aux limitations réelles
+        This tool helps you:
+        - Maximize your EV driving range
+        - Reduce your energy costs
+        - Plan your charging stops
+        - Get more realistic consumption estimates with speeds adapted to real limits
         """)
 
 st.markdown("---")
@@ -241,7 +242,7 @@ VEHICLE_PROFILES = {
 # Sidebar – Parameters
 # ------------------------------
 with st.sidebar:
-    # Logo dans la sidebar
+    # Sidebar logo
     st.markdown("""
     <div style="text-align: center; padding: 1rem 0; margin-bottom: 1rem;">
         <div style="font-size: 3rem; margin-bottom: 0.5rem;">🚗⚡</div>
@@ -249,98 +250,98 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    st.header("⚙️ Paramètres")
+    st.header("⚙️ Settings")
     
-    # Aide rapide
-    with st.expander("💡 Astuce", expanded=False):
+    # Quick help
+    with st.expander("💡 Tip", expanded=False):
         st.markdown("""
-        **Les facteurs qui influencent votre consommation :**
-        - 🧍 **Poids** : Plus de passagers = plus de consommation
-        - 🌡️ **Climatisation** : Peut augmenter de 10-30% la consommation
-        - 🏔️ **Topographie** : Les montées augmentent significativement la consommation
-        - 🏎️ **Vitesse** : La consommation augmente exponentiellement avec la vitesse
-        - 🌡️ **Température** : Froid ou chaud extrême réduit l'efficacité de la batterie
+        **Factors that affect your consumption:**
+        - 🧍 **Weight**: More passengers = higher consumption
+        - 🌡️ **HVAC**: Can increase consumption by 10–30%
+        - 🏔️ **Topography**: Uphill segments significantly increase consumption
+        - 🏎️ **Speed**: Consumption rises exponentially with speed
+        - 🌡️ **Temperature**: Extreme cold/heat reduces battery efficiency
         """)
     
-    ors_key = st.text_input("OpenRouteService API Key", type="password", help="Créez une clé gratuite sur openrouteservice.org et collez-la ici.")
+    ors_key = st.text_input("OpenRouteService API Key", type="password", help="Create a free key at openrouteservice.org and paste it here.")
     st.markdown("---")
     
-    # Profil véhicule
-    st.subheader("🚗 Profil véhicule")
-    vehicle_profile = st.selectbox("Modèle", list(VEHICLE_PROFILES.keys()))
+    # Vehicle profile
+    st.subheader("🚗 Vehicle profile")
+    vehicle_profile = st.selectbox("Model", list(VEHICLE_PROFILES.keys()))
     
     if vehicle_profile != "Personnalisé":
         profile = VEHICLE_PROFILES[vehicle_profile]
-        st.info(f"Profil {vehicle_profile} chargé")
-        st.caption(f"Batterie: {profile['battery_kwh']} kWh | Auxiliaires: {profile['aux_power_kw']} kW")
+        st.info(f"Profile {vehicle_profile} loaded")
+        st.caption(f"Battery: {profile['battery_kwh']} kWh | Aux: {profile['aux_power_kw']} kW")
 
     st.markdown("---")
-    st.subheader("Paramètres véhicule")
+    st.subheader("Vehicle parameters")
     
     # Utiliser les valeurs du profil ou permettre la personnalisation
     if vehicle_profile != "Personnalisé":
         profile = VEHICLE_PROFILES[vehicle_profile]
-        mass_kg = st.number_input("Masse (kg)", 1000, 3500, profile["mass_kg"], 50, disabled=True)
-        cda = st.number_input("Surface frontale × Cx (CdA en m²)", 0.3, 1.2, profile["cda"], 0.01, disabled=True)
-        crr = st.number_input("Coefficient de roulement (Crr)", 0.005, 0.02, profile["crr"], 0.001, format="%.3f", disabled=True)
-        eta_drive = st.slider("Rendement chaîne de traction (η)", 0.70, 0.98, profile["eta_drive"], 0.01, disabled=True)
-        regen_eff = st.slider("Efficacité régénération (%)", 0, 90, int(profile["regen_eff"]*100), 5, disabled=True) / 100.0
-        aux_power_kw = st.number_input("Puissance auxiliaire (kW)", 0.0, 5.0, profile["aux_power_kw"], 0.1, disabled=True)
-        battery_kwh = st.number_input("Capacité batterie (kWh)", 20, 150, profile["battery_kwh"], 5, disabled=True)
+        mass_kg = st.number_input("Mass (kg)", 1000, 3500, profile["mass_kg"], 50, disabled=True)
+        cda = st.number_input("Frontal area × Cd (CdA in m²)", 0.3, 1.2, profile["cda"], 0.01, disabled=True)
+        crr = st.number_input("Rolling resistance (Crr)", 0.005, 0.02, profile["crr"], 0.001, format="%.3f", disabled=True)
+        eta_drive = st.slider("Drivetrain efficiency (η)", 0.70, 0.98, profile["eta_drive"], 0.01, disabled=True)
+        regen_eff = st.slider("Regeneration efficiency (%)", 0, 90, int(profile["regen_eff"]*100), 5, disabled=True) / 100.0
+        aux_power_kw = st.number_input("Auxiliary power (kW)", 0.0, 5.0, profile["aux_power_kw"], 0.1, disabled=True)
+        battery_kwh = st.number_input("Battery capacity (kWh)", 20, 150, profile["battery_kwh"], 5, disabled=True)
     else:
-        mass_kg = st.number_input("Masse (kg)", 1000, 3500, 1900, 50)
-        cda = st.number_input("Surface frontale × Cx (CdA en m²)", 0.3, 1.2, 0.62, 0.01)
-        crr = st.number_input("Coefficient de roulement (Crr)", 0.005, 0.02, 0.010, 0.001, format="%.3f")
-        eta_drive = st.slider("Rendement chaîne de traction (η)", 0.70, 0.98, 0.90, 0.01)
-        regen_eff = st.slider("Efficacité régénération (%)", 0, 90, 60, 5) / 100.0
-        aux_power_kw = st.number_input("Puissance auxiliaire (kW)", 0.0, 5.0, 2.0, 0.1)
-        battery_kwh = st.number_input("Capacité batterie (kWh)", 20, 150, 60, 5)
+        mass_kg = st.number_input("Mass (kg)", 1000, 3500, 1900, 50)
+        cda = st.number_input("Frontal area × Cd (CdA in m²)", 0.3, 1.2, 0.62, 0.01)
+        crr = st.number_input("Rolling resistance (Crr)", 0.005, 0.02, 0.010, 0.001, format="%.3f")
+        eta_drive = st.slider("Drivetrain efficiency (η)", 0.70, 0.98, 0.90, 0.01)
+        regen_eff = st.slider("Regeneration efficiency (%)", 0, 90, 60, 5) / 100.0
+        aux_power_kw = st.number_input("Auxiliary power (kW)", 0.0, 5.0, 2.0, 0.1)
+        battery_kwh = st.number_input("Battery capacity (kWh)", 20, 150, 60, 5)
 
-    rho_air = st.number_input("Densité air (kg/m³)", 0.9, 1.5, 1.225, 0.01)
+    rho_air = st.number_input("Air density (kg/m³)", 0.9, 1.5, 1.225, 0.01)
     st.markdown("---")
-    st.subheader("Vitesses candidates (km/h)")
+    st.subheader("Candidate speeds (km/h)")
     default_speeds = list(range(50, 131, 5))
-    speeds_str = st.text_input("Liste séparée par des virgules", ", ".join(map(str, default_speeds)))
+    speeds_str = st.text_input("Comma-separated list", ", ".join(map(str, default_speeds)))
     try:
         candidate_speeds = sorted({int(s.strip()) for s in speeds_str.split(",") if s.strip()})
     except Exception:
         candidate_speeds = default_speeds
-    user_speed_limit = st.number_input("Limite max sur le trajet (km/h)", 50, 130, 110, 10, help="Pour rester réaliste si l'API ne renvoie pas la limite.")
+    user_speed_limit = st.number_input("Max speed on route (km/h)", 50, 130, 110, 10, help="To stay realistic if the API does not return a limit.")
     st.markdown("---")
-    st.subheader("Contraintes / Critères")
-    max_time_penalty_pct = st.slider("Allongement de temps max vs vitesse la plus rapide (%)", 0, 50, 15, 1)
-    minimize_target = st.selectbox("Critère", ["Minimiser l'énergie sous contrainte temps", "Score pondéré (E + λ·T)"])
-    lam = st.slider("λ (pondération du temps) [pour Score pondéré]", 0.0, 10.0, 2.0, 0.5)
+    st.subheader("Constraints / Objective")
+    max_time_penalty_pct = st.slider("Max time increase vs fastest speed (%)", 0, 50, 15, 1)
+    minimize_target = st.selectbox("Objective", ["Minimize energy under time constraint", "Weighted score (E + λ·T)"])
+    lam = st.slider("λ (time weight) [for weighted score]", 0.0, 10.0, 2.0, 0.5)
     
     st.markdown("---")
-    st.subheader("👥 Charge et passagers")
-    num_passengers = st.number_input("Nombre de passagers", 0, 7, 1, 1, help="Conducteur inclus")
-    avg_weight_kg = st.number_input("Poids moyen par personne (kg)", 40, 120, 75, 5)
+    st.subheader("👥 Load and passengers")
+    num_passengers = st.number_input("Number of passengers", 0, 7, 1, 1, help="Driver included")
+    avg_weight_kg = st.number_input("Average weight per person (kg)", 40, 120, 75, 5)
     total_passenger_weight = num_passengers * avg_weight_kg
     
     st.markdown("---")
-    st.subheader("🌡️ Conditions de conduite")
-    use_climate = st.checkbox("Utiliser la climatisation", value=False)
+    st.subheader("🌡️ Driving conditions")
+    use_climate = st.checkbox("Use HVAC", value=False)
     if use_climate:
-        climate_intensity = st.slider("Intensité de la clim/chauffage (%)", 0, 100, 50, 10)
+        climate_intensity = st.slider("HVAC intensity (%)", 0, 100, 50, 10)
     else:
         climate_intensity = 0
     
     st.markdown("---")
-    st.subheader("🔋 État de la batterie")
-    battery_start_pct = st.slider("Charge de batterie au départ (%)", 20, 100, 100, 5)
-    battery_end_pct = st.slider("Charge cible à l'arrivée (%)", 5, 90, 20, 5)
+    st.subheader("🔋 Battery state")
+    battery_start_pct = st.slider("Battery at departure (%)", 20, 100, 100, 5)
+    battery_end_pct = st.slider("Target battery on arrival (%)", 5, 90, 20, 5)
     
     st.markdown("---")
-    st.subheader("Options avancées")
-    use_elevation = st.checkbox("Utiliser les données d'élévation", value=True, help="Désactivez si vous avez des erreurs d'API")
-    use_segmented_speeds = st.checkbox("Limitations de vitesse par segment", value=True, help="Prend en compte les limitations selon le type de route (autoroute, ville, etc.)")
+    st.subheader("Advanced options")
+    use_elevation = st.checkbox("Use elevation data", value=True, help="Disable if you encounter API errors")
+    use_segmented_speeds = st.checkbox("Speed limits by segment", value=True, help="Takes into account limits by road type (motorway, city, etc.)")
     if use_segmented_speeds:
-        min_speed_delta = st.number_input("Delta vitesse minimum (km/h)", 0, 50, 20, 5, help="Vitesse minimum = limitation - delta (ex: autoroute 130 km/h avec delta 20 = minimum 110 km/h)")
+        min_speed_delta = st.number_input("Minimum speed delta (km/h)", 0, 50, 20, 5, help="Minimum speed = limit - delta (e.g., motorway 130 with delta 20 → min 110 km/h)")
     else:
         min_speed_delta = 0
-    use_detailed_route = st.checkbox("Itinéraire détaillé", value=True, help="Désactivez pour les petits trajets")
-    debug_mode = st.checkbox("Mode debug", value=False, help="Affiche des informations intermédiaires")
+    use_detailed_route = st.checkbox("Detailed route", value=True, help="Disable for short trips")
+    debug_mode = st.checkbox("Debug mode", value=False, help="Display intermediate information")
 
 # ------------------------------
 # Helpers – Physics & Energy
@@ -904,7 +905,7 @@ def ors_elevation_along(coords, api_key):
                 return [0.0 for _ in coords]
 
 # ------------------------------
-# Trajets typiques prédéfinis
+# Predefined typical routes
 # ------------------------------
 TYPICAL_ROUTES = {
     "Paris → Lyon": ("Paris, France", "Lyon, France"),
@@ -912,82 +913,82 @@ TYPICAL_ROUTES = {
     "Paris → Toulouse": ("Paris, France", "Toulouse, France"),
     "Paris → Nantes": ("Paris, France", "Nantes, France"),
     "Lyon → Marseille": ("Lyon, France", "Marseille, France"),
-    "Personnalisé": ("", "")
+    "Custom": ("", "")
 }
 
 # ------------------------------
 # Main UI
 # ------------------------------
-st.markdown("### 1) Saisir votre trajet")
+st.markdown("### 1) Enter your trip")
 
-# Sélection du trajet
-route_choice = st.selectbox("Choisir un trajet typique", list(TYPICAL_ROUTES.keys()))
+# Route selection
+route_choice = st.selectbox("Choose a typical route", list(TYPICAL_ROUTES.keys()))
 
-if route_choice != "Personnalisé":
+if route_choice != "Custom":
     orig_text, dest_text = TYPICAL_ROUTES[route_choice]
-    st.info(f"Trajet sélectionné: {route_choice}")
+    st.info(f"Selected route: {route_choice}")
 else:
     orig_text = ""
     dest_text = ""
 
 col1, col2 = st.columns(2)
 with col1:
-    orig_text = st.text_input("Origine (adresse ou ville)", orig_text)
+    orig_text = st.text_input("Origin (address or city)", orig_text)
 with col2:
-    dest_text = st.text_input("Destination (adresse ou ville)", dest_text)
+    dest_text = st.text_input("Destination (address or city)", dest_text)
 
-run_btn = st.button("Calculer la vitesse conseillée")
+run_btn = st.button("Compute advised speed")
 
 if run_btn:
     if not ors_key or not is_valid_ors_key(ors_key):
-        st.error("Clé API OpenRouteService invalide. Collez votre clé ORS (pas un message d'erreur).")
+        st.error("Invalid OpenRouteService API key. Paste your ORS key (not an error message).")
         st.stop()
 
-    with st.spinner("Géocodage des adresses..."):
+    with st.spinner("Geocoding addresses..."):
         start = ors_geocode(orig_text, ors_key)
         end = ors_geocode(dest_text, ors_key)
         if not start or not end:
-            st.error("Géocodage impossible. Essayez des adresses plus précises.")
+            st.error("Geocoding failed. Try more precise addresses.")
             st.stop()
 
-    with st.spinner("Calcul d'itinéraire..."):
+    with st.spinner("Computing route..."):
         try:
             coords, length_m, duration_s = ors_route(start, end, ors_key)
             if not coords or len(coords) < 2:
-                st.error("Aucun itinéraire trouvé.")
+                st.error("No route found.")
                 st.stop()
         except Exception as e:
-            st.error(f"Erreur lors du calcul d'itinéraire: {e}")
+            st.error(f"Error while computing route: {e}")
             st.stop()
 
-    with st.spinner("Récupération du profil altimétrique..."):
+    with st.spinner("Fetching elevation profile..."):
         if not use_elevation:
-            st.info("Élévation désactivée - Utilisation d'altitude constante")
+            st.info("Elevation disabled - Using constant altitude")
             elevations = [0.0 for _ in coords]
         else:
             try:
                 # Pour les petits trajets, essayer une approche simplifiée
                 if len(coords) <= 2:
-                    st.info("Trajet court - Utilisation d'élévation constante pour simplifier")
+                    st.info("Short trip - Using constant elevation for simplicity")
                     elevations = [0.0 for _ in coords]
                 else:
                     elevations = ors_elevation_along(coords, ors_key)
                     # Validation que les élévations ont la même longueur que les coordonnées
                     if len(elevations) != len(coords):
-                        st.warning(f"Longueur des élévations ({len(elevations)}) différente des coordonnées ({len(coords)}). Utilisation d'élévation constante.")
+                        st.warning(f"Elevation length ({len(elevations)}) differs from coordinates ({len(coords)}). Using constant elevation.")
                         elevations = [0.0 for _ in coords]
             except Exception as e:
-                st.warning(f"Élévation non disponible ({e}). On supposera altitude constante.")
+                st.warning(f"Elevation unavailable ({e}). Assuming constant altitude.")
                 elevations = [0.0 for _ in coords]
 
     if debug_mode:
-        st.caption("[DEBUG] Longueurs après élévation")
+        st.caption("[DEBUG] Lengths after elevation")
         st.json({"n_coords": len(coords), "n_elev": len(elevations)})
         try:
             if elevations:
                 import numpy as np
                 arr = np.array(elevations, dtype=float)
-                st.caption("[DEBUG] Stats élévation")
+                st.caption("[DEBUG] Elevation stats")
                 st.json({
                     "min_m": float(np.min(arr)),
                     "max_m": float(np.max(arr)),
@@ -999,13 +1000,13 @@ if run_btn:
 
     # Validation finale des données
     if len(coords) < 2:
-        st.error("Itinéraire invalide: moins de 2 points")
+        st.error("Invalid route: fewer than 2 points")
         st.stop()
     
     # Si on n'a que 2 points (départ/arrivée), créer un itinéraire simplifié
     if len(coords) == 2:
-        st.warning("⚠️ Itinéraire simplifié: seulement 2 points (départ/arrivée)")
-        st.info("Les calculs seront basés sur une ligne droite. Pour plus de précision, essayez des villes plus proches.")
+        st.warning("⚠️ Simplified route: only 2 points (start/end)")
+        st.info("Calculations will be based on a straight line. For better accuracy, try closer cities.")
         
         # Créer des points intermédiaires pour un calcul plus réaliste
         import numpy as np
@@ -1021,10 +1022,10 @@ if run_btn:
         elevations = [0.0] * len(coords)
     
     if len(elevations) != len(coords):
-        st.error("Données incohérentes: nombre d'élévations différent du nombre de coordonnées")
+        st.error("Inconsistent data: elevation and coordinate counts differ")
         st.stop()
 
-    st.success("Itinéraire et altitudes récupérés ✅")
+    st.success("Route and elevations retrieved ✅")
 
     # ------------------------------
     # Relief (pentes, dénivelés)
@@ -1055,12 +1056,12 @@ if run_btn:
     # ------------------------------
     # Carrefours / ralentissements estimés via instructions ORS (amélioré)
     # ------------------------------
-    with st.spinner("Analyse des carrefours et limitations de vitesse..."):
+    with st.spinner("Analyzing intersections and speed limits..."):
         steps, detailed_segments = ors_route_steps(start, end, ors_key)
         intersection_data = detect_intersections_improved(steps, detailed_segments, coords)
         slowdown_count = len(intersection_data["intersections"]) + len(intersection_data["slowdown_points"])
     if debug_mode:
-        st.caption("[DEBUG] Récap brut après récupération d'itinéraire")
+        st.caption("[DEBUG] Raw recap after route retrieval")
         st.json({
             "n_coords": len(coords),
             "length_m": length_m,
@@ -1071,16 +1072,15 @@ if run_btn:
 
     # (debug segments supprimé)
 
-    # Ajuster la puissance auxiliaire en fonction de la climatisation
+    # Adjust auxiliary power based on HVAC
     climate_power_adjustment = 0
     if use_climate:
-        # Ajouter de la puissance supplémentaire pour la clim (basé sur l'intensité)
-        # Base: 1-3 kW pour la clim selon l'intensité
+        # Add extra HVAC power based on intensity (roughly 1–3 kW)
         climate_power_adjustment = (climate_intensity / 100.0) * 3.0
     
     adjusted_aux_power = aux_power_kw + climate_power_adjustment
     
-    # Calculer le poids total (véhicule + passagers)
+    # Compute total mass (vehicle + passengers)
     total_mass_kg = float(mass_kg) + float(total_passenger_weight)
     
     # Vehicle params dict avec validation
@@ -1096,13 +1096,13 @@ if run_btn:
             battery_kwh=float(battery_kwh)
         )
         
-        # Validation des paramètres
+        # Parameter validation
         if veh['mass_kg'] <= 0 or veh['eta_drive'] <= 0 or veh['eta_drive'] > 1:
-            st.error("Paramètres véhicule invalides")
+            st.error("Invalid vehicle parameters")
             st.stop()
             
     except (ValueError, TypeError) as e:
-        st.error(f"Erreur dans les paramètres véhicule: {e}")
+        st.error(f"Error in vehicle parameters: {e}")
         st.stop()
 
     # Limit candidate speeds by user_speed_limit
@@ -1110,7 +1110,7 @@ if run_btn:
     if not candidates:
         candidates = [user_speed_limit]
 
-    # Evaluate avec barre de progression (avec vitesses segmentées)
+    # Evaluate with progress bar (with segmented speeds)
     results = []
     fastest_t = None
     
@@ -1118,7 +1118,7 @@ if run_btn:
     status_text = st.empty()
     
     for i, v in enumerate(candidates):
-        status_text.text(f"Calcul pour {v} km/h (avec limitations par segment)...")
+        status_text.text(f"Computing for {v} km/h (with per-segment limits)...")
         progress_bar.progress((i + 1) / len(candidates))
         
         try:
@@ -1129,7 +1129,7 @@ if run_btn:
                 
                 # Appliquer des ralentissements aux carrefours
                 if intersection_data["slowdown_points"]:
-                    # Réduire la vitesse aux points de ralentissement (carrefours, ronds-points, virages)
+                    # Reduce speed at slowdown points (intersections, roundabouts, sharp turns)
                     for slowdown in intersection_data["slowdown_points"]:
                         step_idx = slowdown.get("step_index", 0)
                         # Estimer l'index approximatif dans les coordonnées
@@ -1138,7 +1138,7 @@ if run_btn:
                             coord_ratio = step_idx / max(len(steps), 1)
                             coord_idx = min(int(coord_ratio * (len(coords) - 1)), len(segmented_speeds) - 1)
                             if 0 <= coord_idx < len(segmented_speeds):
-                                # Réduire la vitesse de 30% aux carrefours
+                                # Reduce speed by ~30% at intersections
                                 segmented_speeds[coord_idx] = max(segmented_speeds[coord_idx] * 0.7, 30)
                 
                 # Utiliser les vitesses segmentées pour le calcul
@@ -1155,7 +1155,7 @@ if run_btn:
             if fastest_t is None or T_h < fastest_t:
                 fastest_t = T_h
         except Exception as e:
-            st.warning(f"Erreur pour {v} km/h: {e}")
+            st.warning(f"Error for {v} km/h: {e}")
             continue
     
     progress_bar.empty()
@@ -1169,13 +1169,13 @@ if run_btn:
         if not feasible:
             feasible = results[:]  # fallback
     else:
-        feasible = results[:]  # fallback si pas de temps de référence
+        feasible = results[:]  # fallback if no reference time
 
     if not feasible:
-        st.error("Aucun résultat valide trouvé")
+        st.error("No valid result found")
         st.stop()
     
-    if minimize_target == "Minimiser l'énergie sous contrainte temps":
+    if minimize_target == "Minimize energy under time constraint":
         best = min(feasible, key=lambda r: r["energy_Wh"])
     else:
         # Normalize energy and time for a simple E + λT scoring
@@ -1197,101 +1197,109 @@ if run_btn:
     # ------------------------------
     # Output metrics
     # ------------------------------
-    st.markdown("### 2) Résultats")
+    st.markdown("### 2) Results")
     
     # Calcul du nombre de recharges nécessaires
     energy_needed_kwh = best['energy_Wh'] / 1000
     charge_info = calculate_charging_stops(battery_kwh, energy_needed_kwh, battery_start_pct, battery_end_pct)
     
-    # Coût énergétique
-    energy_cost_per_kwh = st.sidebar.number_input("Coût électricité (€/kWh)", 0.10, 0.50, 0.20, 0.01)
+    # Energy cost
+    energy_cost_per_kwh = st.sidebar.number_input("Electricity cost (€/kWh)", 0.10, 0.50, 0.20, 0.01)
     energy_cost = energy_needed_kwh * energy_cost_per_kwh
     
-    # Batterie au départ et calculé pour l'arrivée
+    # Battery at departure and calculated for arrival
     battery_start_kwh = battery_kwh * (battery_start_pct / 100.0)
     battery_after_trip = battery_start_kwh - energy_needed_kwh
     battery_end_pct_calc = (battery_after_trip / battery_kwh) * 100
     
-    # Afficher un résumé des paramètres du voyage
-    with st.expander("📋 Résumé des paramètres du voyage", expanded=True):
+    # Show a summary of trip parameters
+    with st.expander("📋 Trip parameter summary", expanded=True):
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("👥 Passagers", f"{num_passengers}", help=f"Poids total: {total_passenger_weight} kg")
-        col2.metric("🌡️ Climatisation", "✅ Oui" if use_climate else "❌ Non", help=f"Intensité: {climate_intensity}%" if use_climate else "")
-        col3.metric("🔋 Batterie départ", f"{battery_start_pct}%", help=f"{battery_start_kwh:.1f} kWh")
-        col4.metric("🎯 Batterie cible", f"{battery_end_pct}%", help=f"{battery_kwh * (battery_end_pct/100):.1f} kWh")
+        col1.metric("👥 Passengers", f"{num_passengers}", help=f"Total weight: {total_passenger_weight} kg")
+        col2.metric("🌡️ HVAC", "✅ Yes" if use_climate else "❌ No", help=f"Intensity: {climate_intensity}%" if use_climate else "")
+        col3.metric("🔋 Battery (start)", f"{battery_start_pct}%", help=f"{battery_start_kwh:.1f} kWh")
+        col4.metric("🎯 Battery target", f"{battery_end_pct}%", help=f"{battery_kwh * (battery_end_pct/100):.1f} kWh")
     
-    # Afficher les informations de charge
-    st.info(f"📊 **Analyse de batterie** : Charge au départ {battery_start_pct}% ({battery_start_kwh:.1f} kWh) | Après trajet: {battery_end_pct_calc:.1f}% ({battery_after_trip:.1f} kWh)")
+    # Show battery information
+    st.info(f"📊 **Battery analysis**: Start {battery_start_pct}% ({battery_start_kwh:.1f} kWh) | After trip: {battery_end_pct_calc:.1f}% ({battery_after_trip:.1f} kWh)")
     
     colA, colB, colC, colD = st.columns(4)
-    colA.metric("Vitesse conseillée", f"{best['speed']} km/h")
-    colB.metric("Énergie estimée", f"{energy_needed_kwh:.2f} kWh")
-    colC.metric("Temps de trajet", f"{best['time_h']*60:.1f} min")
+    colA.metric("Advised speed", f"{best['speed']} km/h")
+    colB.metric("Estimated energy", f"{energy_needed_kwh:.2f} kWh")
+    colC.metric("Travel time", f"{best['time_h']*60:.1f} min")
     colD.metric("Distance", f"{best['dist_km']:.1f} km")
 
-    # Bloc relief et carrefours
+    # Relief and intersections block
     colR1, colR2, colR3 = st.columns(3)
-    colR1.metric("Dénivelé +", f"{total_up_m:.0f} m")
-    colR2.metric("Dénivelé -", f"{total_down_m:.0f} m")
-    colR3.metric("Pente max (abs)", f"{max_abs_slope_pct:.1f} %")
+    colR1.metric("Elevation gain", f"{total_up_m:.0f} m")
+    colR2.metric("Elevation loss", f"{total_down_m:.0f} m")
+    colR3.metric("Max slope (abs)", f"{max_abs_slope_pct:.1f} %")
 
-    st.caption("Carrefours/ralentissements détectés (analyse améliorée)")
+    st.caption("Detected intersections/slowdowns (improved analysis)")
     col_int1, col_int2 = st.columns(2)
-    col_int1.metric("Carrefours/intersections", len(intersection_data["intersections"]))
-    col_int2.metric("Points de ralentissement", len(intersection_data["slowdown_points"]))
+    col_int1.metric("Intersections", len(intersection_data["intersections"]))
+    col_int2.metric("Slowdown points", len(intersection_data["slowdown_points"]))
     
     if use_segmented_speeds:
-        st.success("✅ **Limitations de vitesse par segment activées** : Les calculs prennent en compte les limitations selon le type de route (autoroute 130 km/h, ville 50 km/h, etc.)")
+        st.success("✅ **Per-segment speed limits enabled**: Calculations consider limits by road type (motorway 130 km/h, city 50 km/h, etc.)")
         if 'avg_speed' in best:
-            st.info(f"ℹ️ Vitesse moyenne réelle sur le trajet : {best['avg_speed']:.1f} km/h (vitesse conseillée de base : {best['speed']} km/h)")
+            st.info(f"ℹ️ Actual average speed on the route: {best['avg_speed']:.1f} km/h (base advised speed: {best['speed']} km/h)")
     
-    # Nouvelles métriques avec recharge
+    # New metrics with charging
     colE, colF, colG, colH = st.columns(4)
-    colE.metric("Coût énergétique", f"{energy_cost:.2f} €")
-    colF.metric("🔌 Recharges nécessaires", f"{charge_info['num_stops']}", help="Nombre de recharges à planifier")
-    colG.metric("Niveau batterie après", f"{battery_end_pct_calc:.1f}%")
-    colH.metric("Consommation", f"{energy_needed_kwh/best['dist_km']:.2f} kWh/km")
+    colE.metric("Energy cost", f"{energy_cost:.2f} €")
+    colF.metric("🔌 Required charges", f"{charge_info['num_stops']}", help="Number of charges to plan")
+    colG.metric("Battery after trip", f"{battery_end_pct_calc:.1f}%")
+    colH.metric("Consumption", f"{energy_needed_kwh/best['dist_km']:.2f} kWh/km")
     
-    # Affichage du résultat des recharges
+    # Charging result display
     if charge_info['num_stops'] == 0:
-        st.success(f"✅ **Pas de recharge nécessaire !** Vous avez assez de batterie pour ce trajet.")
+        st.success(f"✅ **No charging needed!** You have enough battery for this trip.")
     elif charge_info['num_stops'] > 0 and charge_info['num_stops'] < 10:
-        st.warning(f"🔋 **{charge_info['num_stops']} recharge(s) recommandée(s)** pour ce trajet.")
+        st.warning(f"🔋 **{charge_info['num_stops']} charge(s) recommended** for this trip.")
     else:
-        st.error(f"⚠️ **Trajet difficile** : La consommation est très élevée ({charge_info['num_stops']} recharges estimées).")
+        st.error(f"⚠️ **Challenging trip**: Consumption is very high ({charge_info['num_stops']} estimated charges).")
     
-    # Alertes pour les cas limites
+    # Alerts for edge cases
     if battery_end_pct_calc < 20:
-        st.error("⚠️ Batterie très faible à l'arrivée ! Rechargez avant de partir.")
+        st.error("⚠️ Very low battery on arrival! Consider charging before departure.")
     elif battery_end_pct_calc < 50:
-        st.warning("🔋 Niveau de batterie modéré à l'arrivée. Surveillez votre consommation.")
+        st.warning("🔋 Moderate battery level on arrival. Monitor your consumption.")
     
     if energy_needed_kwh > veh['battery_kwh']:
-        st.error("❌ Consommation supérieure à la capacité batterie ! Trajet impossible.")
+        st.error("❌ Consumption exceeds battery capacity! Trip is not feasible.")
     elif energy_needed_kwh > veh['battery_kwh'] * 0.8:
-        st.warning("⚠️ Consommation élevée. Trajet possible mais risqué.")
+        st.warning("⚠️ High consumption. Trip is possible but risky.")
 
     # Savings vs fastest
     dE_Wh = best["energy_Wh"] - fastest["energy_Wh"]
     dT_min = (best["time_h"] - fastest["time_h"]) * 60
-    st.markdown("#### Impact vs conduite la plus rapide (parmi vos vitesses candidates)")
+    st.markdown("#### Impact vs fastest driving (among your candidate speeds)")
     c1, c2 = st.columns(2)
-    c1.metric("Énergie économisée", f"{-dE_Wh/1000:.2f} kWh" if dE_Wh<0 else f"+{dE_Wh/1000:.2f} kWh")
-    c2.metric("Temps ajouté", f"{dT_min:.1f} min")
+    c1.metric("Energy saved", f"{-dE_Wh/1000:.2f} kWh" if dE_Wh<0 else f"+{dE_Wh/1000:.2f} kWh")
+    c2.metric("Time added", f"{dT_min:.1f} min")
 
     # ------------------------------
     # Table results
     # ------------------------------
-    st.markdown("#### Comparaison des vitesses candidates")
+    st.markdown("#### Comparison of candidate speeds")
     import pandas as pd
     df = pd.DataFrame([
         dict(
-            Vitesse_kmh=r["speed"],
-            Energie_kWh=r["energy_Wh"]/1000.0,
-            Temps_min=r["time_h"]*60.0
+            Speed_kmh=r["speed"],
+            Energy_KWh=r["energy_Wh"]/1000.0,
+            Time_min=r["time_h"]*60.0
         ) for r in results
-    ]).sort_values("Vitesse_kmh")
+    ]).sort_values("Speed_kmh")
     st.dataframe(df, use_container_width=True)
+
+    # Ensure export directory exists
+    os.makedirs("images", exist_ok=True)
+    # Export CSV summary
+    try:
+        df.to_csv("images/candidate_speeds.csv", index=False)
+    except Exception:
+        pass
 
     # ------------------------------
     # Plot Energy vs Speed - Graphiques améliorés
@@ -1301,56 +1309,84 @@ if run_btn:
     with col_graph1:
         fig, ax = plt.subplots(figsize=(8, 5))
         # Trouver la vitesse optimale pour la colorer différemment
-        best_speed_index = df[df["Vitesse_kmh"] == best["speed"]].index[0]
+        best_speed_index = df[df["Speed_kmh"] == best["speed"]].index[0]
         
         # Créer un array de couleurs
         colors = ['#2ecc71' if idx == best_speed_index else '#3498db' for idx in range(len(df))]
         
-        ax.scatter(df["Vitesse_kmh"], df["Energie_kWh"], 
+        ax.scatter(df["Speed_kmh"], df["Energy_KWh"], 
                    s=100, c=colors, alpha=0.7, edgecolors='darkblue', linewidth=2)
-        ax.plot(df["Vitesse_kmh"], df["Energie_kWh"], 
+        ax.plot(df["Speed_kmh"], df["Energy_KWh"], 
                 color='#95a5a6', linewidth=1, linestyle='--', alpha=0.5)
         
-        # Marquer la vitesse optimale
         if best_speed_index < len(df):
             ax.scatter(best["speed"], best["energy_Wh"]/1000, 
                       s=200, c='#e74c3c', marker='*', edgecolors='darkred', 
-                      linewidth=2, label=f'Recommandé: {best["speed"]} km/h', zorder=5)
+                      linewidth=2, label=f'Recommended: {best["speed"]} km/h', zorder=5)
         
-        ax.set_xlabel("Vitesse (km/h)", fontsize=12, fontweight='bold')
-        ax.set_ylabel("Énergie (kWh)", fontsize=12, fontweight='bold')
-        ax.set_title("⚡ Consommation énergétique vs Vitesse", fontsize=14, fontweight='bold', pad=15)
+        ax.set_xlabel("Speed (km/h)", fontsize=12, fontweight='bold')
+        ax.set_ylabel("Energy (kWh)", fontsize=12, fontweight='bold')
+        ax.set_title("⚡ Energy consumption vs Speed", fontsize=14, fontweight='bold', pad=15)
         ax.grid(True, alpha=0.3, linestyle=':')
         ax.legend(fontsize=10)
         plt.tight_layout()
         st.pyplot(fig)
+        
+        # Export figure: energy vs speed
+        try:
+            route_tag = f"{orig_text}_to_{dest_text}".lower().replace(" ", "_").replace(",", "").replace("/", "-")
+            if route_tag.strip("_") == "_to_":
+                route_tag = "route"
+            # Specific aliases for known case studies
+            if "paris" in orig_text.lower() and "marseille" in dest_text.lower():
+                energy_path = "images/paris_marseille_energy.png"
+            elif "paris" in orig_text.lower() and "beauvais" in dest_text.lower():
+                energy_path = "images/paris_beauvais_energy.png"
+            else:
+                energy_path = f"images/{route_tag}_energy.png"
+            fig.savefig(energy_path, dpi=200, bbox_inches='tight')
+        except Exception:
+            pass
     
     with col_graph2:
         fig, ax = plt.subplots(figsize=(8, 5))
-        # Graphique temps vs vitesse
-        ax.scatter(df["Vitesse_kmh"], df["Temps_min"], 
+        ax.scatter(df["Speed_kmh"], df["Time_min"], 
                    s=100, c='#e67e22', alpha=0.7, edgecolors='darkorange', linewidth=2)
-        ax.plot(df["Vitesse_kmh"], df["Temps_min"], 
+        ax.plot(df["Speed_kmh"], df["Time_min"], 
                 color='#95a5a6', linewidth=1, linestyle='--', alpha=0.5)
         
-        # Marquer la vitesse optimale
-        best_speed_index = df[df["Vitesse_kmh"] == best["speed"]].index[0]
+        best_speed_index = df[df["Speed_kmh"] == best["speed"]].index[0]
         if best_speed_index < len(df):
             ax.scatter(best["speed"], best["time_h"]*60, 
                       s=200, c='#e74c3c', marker='*', edgecolors='darkred', 
-                      linewidth=2, label=f'Recommandé: {best["speed"]} km/h', zorder=5)
+                      linewidth=2, label=f'Recommended: {best["speed"]} km/h', zorder=5)
         
-        ax.set_xlabel("Vitesse (km/h)", fontsize=12, fontweight='bold')
-        ax.set_ylabel("Temps (minutes)", fontsize=12, fontweight='bold')
-        ax.set_title("⏱️ Temps de trajet vs Vitesse", fontsize=14, fontweight='bold', pad=15)
+        ax.set_xlabel("Speed (km/h)", fontsize=12, fontweight='bold')
+        ax.set_ylabel("Time (minutes)", fontsize=12, fontweight='bold')
+        ax.set_title("⏱️ Travel time vs Speed", fontsize=14, fontweight='bold', pad=15)
         ax.grid(True, alpha=0.3, linestyle=':')
         ax.legend(fontsize=10)
         plt.tight_layout()
         st.pyplot(fig)
 
+        # Export figure: time vs speed
+        try:
+            route_tag = f"{orig_text}_to_{dest_text}".lower().replace(" ", "_").replace(",", "").replace("/", "-")
+            if route_tag.strip("_") == "_to_":
+                route_tag = "route"
+            if "paris" in orig_text.lower() and "marseille" in dest_text.lower():
+                time_path = "images/paris_marseille_time.png"
+            elif "paris" in orig_text.lower() and "beauvais" in dest_text.lower():
+                time_path = "images/paris_beauvais_time.png"
+            else:
+                time_path = f"images/{route_tag}_time.png"
+            fig.savefig(time_path, dpi=200, bbox_inches='tight')
+        except Exception:
+            pass
+
     # (aucune carte interactive dans la version d'origine)
 
-    st.info("Astuce : Ajustez la 'Limite max' et la 'contrainte d'allongement de temps' dans la barre latérale pour voir l'effet sur la recommandation.")
+    st.info("Tip: Adjust 'Max speed' and the 'Max time increase' in the sidebar to see the effect on the recommendation.")
 
 else:
-    st.info("Entrez une origine et une destination, fournissez votre clé ORS, puis cliquez sur *Calculer la vitesse conseillée*.")
+    st.info("Enter an origin and a destination, provide your ORS key, then click *Compute advised speed*.")
