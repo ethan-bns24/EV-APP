@@ -15,6 +15,10 @@ import os
 # ------------------------------
 st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_icon="🚗")
 
+# Init session flags
+if "export_requested" not in st.session_state:
+    st.session_state["export_requested"] = False
+
 # Ajouter des styles CSS personnalisés améliorés (design sobre et professionnel)
 st.markdown("""
 <style>
@@ -1316,13 +1320,6 @@ if run_btn:
         csv_path = os.path.join(export_dir, "candidate_speeds.csv")
         return energy_path, time_path, csv_path
 
-    # Export CSV summary (auto)
-    try:
-        _, _, csv_path = _route_tag_and_paths()
-        df.to_csv(csv_path, index=False)
-    except Exception:
-        pass
-
     # ------------------------------
     # Plot Energy vs Speed - Graphiques améliorés
     # ------------------------------
@@ -1390,11 +1387,22 @@ if run_btn:
         except Exception:
             pass
 
-    # Export after plots (ensures figures exist)
+    # Auto export CSV (after plots so df is final)
+    try:
+        _, _, csv_path = _route_tag_and_paths()
+        df.to_csv(csv_path, index=False)
+        st.caption(f"Auto-exported to: {csv_path}")
+    except Exception:
+        pass
+
+    # Single export button (sets a flag, export happens in same run below)
     if st.button("💾 Export figures/CSV (after plots)"):
+        st.session_state["export_requested"] = True
+
+    # Perform export if requested
+    if st.session_state.get("export_requested"):
         try:
             energy_path, time_path, csv_path = _route_tag_and_paths()
-            # Ensure dir exists
             os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
             df.to_csv(csv_path, index=False)
             if "last_fig_energy" in st.session_state:
@@ -1404,6 +1412,8 @@ if run_btn:
             st.success(f"Exported:\n- {csv_path}\n- {energy_path}\n- {time_path}")
         except Exception as e:
             st.error(f"Export failed: {e}")
+        finally:
+            st.session_state["export_requested"] = False
 
     # (aucune carte interactive dans la version d'origine)
 
