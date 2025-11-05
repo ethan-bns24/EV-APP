@@ -1294,12 +1294,45 @@ if run_btn:
     st.dataframe(df, use_container_width=True)
 
     # Ensure export directory exists
-    os.makedirs("images", exist_ok=True)
-    # Export CSV summary
     try:
-        df.to_csv("images/candidate_speeds.csv", index=False)
+        os.makedirs(export_dir, exist_ok=True)
     except Exception:
         pass
+    
+    # Helper to build route tag and target paths
+    def _route_tag_and_paths():
+        tag = f"{orig_text}_to_{dest_text}".lower().replace(" ", "_").replace(",", "").replace("/", "-")
+        if tag.strip("_") == "_to_":
+            tag = "route"
+        if "paris" in orig_text.lower() and "marseille" in dest_text.lower():
+            energy_path = os.path.join(export_dir, "paris_marseille_energy.png")
+            time_path = os.path.join(export_dir, "paris_marseille_time.png")
+        elif "paris" in orig_text.lower() and "beauvais" in dest_text.lower():
+            energy_path = os.path.join(export_dir, "paris_beauvais_energy.png")
+            time_path = os.path.join(export_dir, "paris_beauvais_time.png")
+        else:
+            energy_path = os.path.join(export_dir, f"{tag}_energy.png")
+            time_path = os.path.join(export_dir, f"{tag}_time.png")
+        csv_path = os.path.join(export_dir, "candidate_speeds.csv")
+        return energy_path, time_path, csv_path
+
+    # Export CSV summary (auto)
+    try:
+        _, _, csv_path = _route_tag_and_paths()
+        df.to_csv(csv_path, index=False)
+    except Exception:
+        pass
+
+    # Manual export button
+    export_col = st.columns(1)[0]
+    with export_col:
+        if st.button("💾 Export figures/CSV now"):
+            try:
+                energy_path, time_path, csv_path = _route_tag_and_paths()
+                df.to_csv(csv_path, index=False)
+                st.success(f"Exported CSV to {csv_path}")
+            except Exception as e:
+                st.warning(f"Export failed: {e}")
 
     # ------------------------------
     # Plot Energy vs Speed - Graphiques améliorés
@@ -1308,7 +1341,6 @@ if run_btn:
     
     with col_graph1:
         fig, ax = plt.subplots(figsize=(8, 5))
-        # Trouver la vitesse optimale pour la colorer différemment
         best_speed_index = df[df["Speed_kmh"] == best["speed"]].index[0]
         
         # Créer un array de couleurs
@@ -1332,18 +1364,9 @@ if run_btn:
         plt.tight_layout()
         st.pyplot(fig)
         
-        # Export figure: energy vs speed
+        # Export figure: energy vs speed (auto + on-demand)
         try:
-            route_tag = f"{orig_text}_to_{dest_text}".lower().replace(" ", "_").replace(",", "").replace("/", "-")
-            if route_tag.strip("_") == "_to_":
-                route_tag = "route"
-            # Specific aliases for known case studies
-            if "paris" in orig_text.lower() and "marseille" in dest_text.lower():
-                energy_path = "images/paris_marseille_energy.png"
-            elif "paris" in orig_text.lower() and "beauvais" in dest_text.lower():
-                energy_path = "images/paris_beauvais_energy.png"
-            else:
-                energy_path = f"images/{route_tag}_energy.png"
+            energy_path, _, _ = _route_tag_and_paths()
             fig.savefig(energy_path, dpi=200, bbox_inches='tight')
         except Exception:
             pass
@@ -1369,17 +1392,9 @@ if run_btn:
         plt.tight_layout()
         st.pyplot(fig)
 
-        # Export figure: time vs speed
+        # Export figure: time vs speed (auto + on-demand)
         try:
-            route_tag = f"{orig_text}_to_{dest_text}".lower().replace(" ", "_").replace(",", "").replace("/", "-")
-            if route_tag.strip("_") == "_to_":
-                route_tag = "route"
-            if "paris" in orig_text.lower() and "marseille" in dest_text.lower():
-                time_path = "images/paris_marseille_time.png"
-            elif "paris" in orig_text.lower() and "beauvais" in dest_text.lower():
-                time_path = "images/paris_beauvais_time.png"
-            else:
-                time_path = f"images/{route_tag}_time.png"
+            _, time_path, _ = _route_tag_and_paths()
             fig.savefig(time_path, dpi=200, bbox_inches='tight')
         except Exception:
             pass

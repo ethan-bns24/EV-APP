@@ -19,6 +19,7 @@
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{enumitem}
+\usepackage{csvsimple}
 
 % Layout
 \usepackage{geometry}
@@ -237,6 +238,16 @@ We consider typical inter-city routes in France (e.g., Paris\,→\,Lyon; Lyon\,�
     120 &  29.8 &  142.1 & 250.0 &  \\
     \bottomrule
   \end{tabular}
+\end{table}
+
+\subsection{Auto-generated Table from Exported CSV}
+When running the app and exporting, the CSV \texttt{images/candidate_speeds.csv} is produced. We include it below directly for traceability.
+
+\begin{table}[H]
+  \centering
+  \caption{Candidate speeds — CSV exported from the application}
+  \label{tab:csv-candidates}
+  \csvautobooktabular{images/candidate_speeds.csv}
 \end{table}
 
 \subsection{Charts}
