@@ -1323,24 +1323,13 @@ if run_btn:
     except Exception:
         pass
 
-    # Manual export button
-    export_col = st.columns(1)[0]
-    with export_col:
-        if st.button("💾 Export figures/CSV now"):
-            try:
-                energy_path, time_path, csv_path = _route_tag_and_paths()
-                df.to_csv(csv_path, index=False)
-                st.success(f"Exported CSV to {csv_path}")
-            except Exception as e:
-                st.warning(f"Export failed: {e}")
-
     # ------------------------------
     # Plot Energy vs Speed - Graphiques améliorés
     # ------------------------------
     col_graph1, col_graph2 = st.columns(2)
     
     with col_graph1:
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig_energy, ax = plt.subplots(figsize=(8, 5))
         best_speed_index = df[df["Speed_kmh"] == best["speed"]].index[0]
         
         # Créer un array de couleurs
@@ -1362,17 +1351,18 @@ if run_btn:
         ax.grid(True, alpha=0.3, linestyle=':')
         ax.legend(fontsize=10)
         plt.tight_layout()
-        st.pyplot(fig)
+        st.pyplot(fig_energy)
+        st.session_state["last_fig_energy"] = fig_energy
         
         # Export figure: energy vs speed (auto + on-demand)
         try:
             energy_path, _, _ = _route_tag_and_paths()
-            fig.savefig(energy_path, dpi=200, bbox_inches='tight')
+            fig_energy.savefig(energy_path, dpi=200, bbox_inches='tight')
         except Exception:
             pass
     
     with col_graph2:
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig_time, ax = plt.subplots(figsize=(8, 5))
         ax.scatter(df["Speed_kmh"], df["Time_min"], 
                    s=100, c='#e67e22', alpha=0.7, edgecolors='darkorange', linewidth=2)
         ax.plot(df["Speed_kmh"], df["Time_min"], 
@@ -1390,14 +1380,30 @@ if run_btn:
         ax.grid(True, alpha=0.3, linestyle=':')
         ax.legend(fontsize=10)
         plt.tight_layout()
-        st.pyplot(fig)
+        st.pyplot(fig_time)
+        st.session_state["last_fig_time"] = fig_time
 
         # Export figure: time vs speed (auto + on-demand)
         try:
             _, time_path, _ = _route_tag_and_paths()
-            fig.savefig(time_path, dpi=200, bbox_inches='tight')
+            fig_time.savefig(time_path, dpi=200, bbox_inches='tight')
         except Exception:
             pass
+
+    # Export after plots (ensures figures exist)
+    if st.button("💾 Export figures/CSV (after plots)"):
+        try:
+            energy_path, time_path, csv_path = _route_tag_and_paths()
+            # Ensure dir exists
+            os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
+            df.to_csv(csv_path, index=False)
+            if "last_fig_energy" in st.session_state:
+                st.session_state["last_fig_energy"].savefig(energy_path, dpi=200, bbox_inches='tight')
+            if "last_fig_time" in st.session_state:
+                st.session_state["last_fig_time"].savefig(time_path, dpi=200, bbox_inches='tight')
+            st.success(f"Exported:\n- {csv_path}\n- {energy_path}\n- {time_path}")
+        except Exception as e:
+            st.error(f"Export failed: {e}")
 
     # (aucune carte interactive dans la version d'origine)
 
