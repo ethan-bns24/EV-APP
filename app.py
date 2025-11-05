@@ -1223,7 +1223,7 @@ if run_btn:
         col1.metric("👥 Passengers", f"{num_passengers}", help=f"Total weight: {total_passenger_weight} kg")
         col2.metric("🌡️ HVAC", "✅ Yes" if use_climate else "❌ No", help=f"Intensity: {climate_intensity}%" if use_climate else "")
         col3.metric("🔋 Battery (start)", f"{battery_start_pct}%", help=f"{battery_start_kwh:.1f} kWh")
-        col4.metric("🎯 Battery target", f"{battery_end_pct}%", help=f"{battery_kwh * (battery_end_pct/100):.1f} kWh")
+        col4.metric("🎯 Battery target", f"{battery_kwh * (battery_end_pct/100):.1f} kWh")
     
     # Show battery information
     st.info(f"📊 **Battery analysis**: Start {battery_start_pct}% ({battery_start_kwh:.1f} kWh) | After trip: {battery_end_pct_calc:.1f}% ({battery_after_trip:.1f} kWh)")
@@ -1310,7 +1310,7 @@ if run_btn:
     with col_graph1:
         fig_energy, ax = plt.subplots(figsize=(8.5, 5.2))
         x = df["Speed_kmh"].values
-        yE = df["Energy_KWh"].values
+        yE = df["Energy_kWh"].values
         colors = ["#2ecc71" if int(s) in feasible_speeds else "#3498db" for s in x]
         ax.plot(x, yE, color="#95a5a6", linewidth=1.0, linestyle="--", alpha=0.6)
         ax.scatter(x, yE, s=100, c=colors, alpha=0.85, edgecolors='black', linewidth=0.8)
