@@ -19,7 +19,6 @@
 \usepackage{subcaption}
 \usepackage{float}
 \usepackage{enumitem}
-\usepackage{csvsimple}
 
 % Layout
 \usepackage{geometry}
@@ -240,55 +239,19 @@ We consider typical inter-city routes in France (e.g., Paris\,→\,Lyon; Lyon\,�
   \end{tabular}
 \end{table}
 
-\subsection{Auto-generated Table from Exported CSV}
-When running the app and exporting, the CSV \texttt{images/candidate_speeds.csv} is produced. We include it below directly for traceability.
-
-\begin{table}[H]
-  \centering
-  \caption{Candidate speeds — CSV exported from the application}
-  \label{tab:csv-candidates}
-  \csvautobooktabular{images/candidate_speeds.csv}
-\end{table}
+% Removed: CSV auto-inclusion (use screenshots/exports from the app instead)
 
 \subsection{Charts}
-Figures show energy vs speed and time vs speed, highlighting the recommended point. (Rendered in-app using Matplotlib; exportable for report inclusion.)
+Figures show energy vs speed and time vs speed, highlighting the recommended point. For reproducibility in this memo, we will use screenshots captured from the application after running the scenarios.
 
 \subsection{Case Studies}
 We include a long-distance inter-city trip and a shorter peri-urban trip to demonstrate the tool on distinct regimes.
 
 \paragraph{Paris \textrightarrow{} Marseille (long trip)}
-Figures~\ref{fig:pm-energy} and \ref{fig:pm-time} were exported directly from the app using the “save charts” feature.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=.85\textwidth]{images/paris_marseille_energy.png}
-  \caption{Energy vs Speed — Paris\,→\,Marseille}
-  \label{fig:pm-energy}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=.85\textwidth]{images/paris_marseille_time.png}
-  \caption{Time vs Speed — Paris\,→\,Marseille}
-  \label{fig:pm-time}
-\end{figure}
+Insert here the screenshots exported from the app (energy vs speed and time vs speed) captured during the presentation.
 
 \paragraph{Paris \textrightarrow{} Beauvais (shorter trip)}
-Figures~\ref{fig:pb-energy} and \ref{fig:pb-time} illustrate a shorter route with different optimality tradeoffs.
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=.85\textwidth]{images/paris_beauvais_energy.png}
-  \caption{Energy vs Speed — Paris\,→\,Beauvais}
-  \label{fig:pb-energy}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=.85\textwidth]{images/paris_beauvais_time.png}
-  \caption{Time vs Speed — Paris\,→\,Beauvais}
-  \label{fig:pb-time}
-\end{figure}
+Likewise, include the screenshots for the shorter route. Captures can be appended in the annex if preferred.
 
 \section{Sensitivity Analysis}
 We vary passengers (0–5, \SI{60}{\kilo\gram}–\SI{90}{\kilo\gram} per person), HVAC intensity (0–100\%), and the per-segment speed delta policy. As expected, higher mass and HVAC increase energy; conservative speed deltas reduce consumption at moderate time cost.
@@ -317,8 +280,7 @@ We presented a practical, transparent EV eco-speed advisory system with reproduc
 \section*{Reproducibility}
 Source code: \url{https://github.com/ethan-bns24/EV-APP}\\
 Requirements: see \texttt{requirements.txt}.\\
-Run: \texttt{streamlit run app.py}.\\
-Export: use the in-app export to save figures and CSV to \texttt{images/}.
+Run: \texttt{streamlit run app.py}.
 
 \section*{Ethical and Environmental Considerations}
 Eco-driving can reduce energy use and operational cost. Data privacy is respected by not storing user routes or keys server-side.

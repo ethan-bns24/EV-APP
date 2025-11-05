@@ -8,16 +8,17 @@ import pandas as pd
 from typing import List, Tuple, Dict, Optional
 import concurrent.futures
 from functools import lru_cache
-import os
 
 # ------------------------------
 # App Config
 # ------------------------------
 st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_icon="🚗")
 
-# Init session flags
-if "export_requested" not in st.session_state:
-    st.session_state["export_requested"] = False
+# Style global des graphiques
+try:
+    plt.style.use('seaborn-v0_8-whitegrid')
+except Exception:
+    pass
 
 # Ajouter des styles CSS personnalisés améliorés (design sobre et professionnel)
 st.markdown("""
@@ -1291,131 +1292,66 @@ if run_btn:
     df = pd.DataFrame([
         dict(
             Speed_kmh=r["speed"],
-            Energy_KWh=r["energy_Wh"]/1000.0,
+            Energy_kWh=r["energy_Wh"]/1000.0,
             Time_min=r["time_h"]*60.0
         ) for r in results
     ]).sort_values("Speed_kmh")
     st.dataframe(df, use_container_width=True)
 
-    # Ensure export directory exists
-    try:
-        os.makedirs(export_dir, exist_ok=True)
-    except Exception:
-        pass
-    
-    # Helper to build route tag and target paths
-    def _route_tag_and_paths():
-        tag = f"{orig_text}_to_{dest_text}".lower().replace(" ", "_").replace(",", "").replace("/", "-")
-        if tag.strip("_") == "_to_":
-            tag = "route"
-        if "paris" in orig_text.lower() and "marseille" in dest_text.lower():
-            energy_path = os.path.join(export_dir, "paris_marseille_energy.png")
-            time_path = os.path.join(export_dir, "paris_marseille_time.png")
-        elif "paris" in orig_text.lower() and "beauvais" in dest_text.lower():
-            energy_path = os.path.join(export_dir, "paris_beauvais_energy.png")
-            time_path = os.path.join(export_dir, "paris_beauvais_time.png")
-        else:
-            energy_path = os.path.join(export_dir, f"{tag}_energy.png")
-            time_path = os.path.join(export_dir, f"{tag}_time.png")
-        csv_path = os.path.join(export_dir, "candidate_speeds.csv")
-        return energy_path, time_path, csv_path
-
     # ------------------------------
-    # Plot Energy vs Speed - Graphiques améliorés
+    # Plot Energy vs Speed (improved)
     # ------------------------------
     col_graph1, col_graph2 = st.columns(2)
-    
+
+    # Feasible mask under time constraint
+    max_time_h = fastest_t * (1 + max_time_penalty_pct/100.0) if fastest_t is not None else None
+    feasible_speeds = set(r["speed"] for r in results if max_time_h is None or r["time_h"] <= max_time_h)
+
     with col_graph1:
-        fig_energy, ax = plt.subplots(figsize=(8, 5))
-        best_speed_index = df[df["Speed_kmh"] == best["speed"]].index[0]
-        
-        # Créer un array de couleurs
-        colors = ['#2ecc71' if idx == best_speed_index else '#3498db' for idx in range(len(df))]
-        
-        ax.scatter(df["Speed_kmh"], df["Energy_KWh"], 
-                   s=100, c=colors, alpha=0.7, edgecolors='darkblue', linewidth=2)
-        ax.plot(df["Speed_kmh"], df["Energy_KWh"], 
-                color='#95a5a6', linewidth=1, linestyle='--', alpha=0.5)
-        
-        if best_speed_index < len(df):
-            ax.scatter(best["speed"], best["energy_Wh"]/1000, 
-                      s=200, c='#e74c3c', marker='*', edgecolors='darkred', 
-                      linewidth=2, label=f'Recommended: {best["speed"]} km/h', zorder=5)
-        
+        fig_energy, ax = plt.subplots(figsize=(8.5, 5.2))
+        x = df["Speed_kmh"].values
+        yE = df["Energy_KWh"].values
+        colors = ["#2ecc71" if int(s) in feasible_speeds else "#3498db" for s in x]
+        ax.plot(x, yE, color="#95a5a6", linewidth=1.0, linestyle="--", alpha=0.6)
+        ax.scatter(x, yE, s=100, c=colors, alpha=0.85, edgecolors='black', linewidth=0.8)
+        # Annotate best
+        ax.scatter(best["speed"], best["energy_Wh"]/1000, s=220, c="#e74c3c", marker='*', edgecolors='black', linewidth=0.8, zorder=5)
+        ax.annotate(
+            f"Best: {best['speed']} km/h\n{best['energy_Wh']/1000:.2f} kWh",
+            xy=(best["speed"], best["energy_Wh"]/1000), xycoords='data',
+            xytext=(15, 10), textcoords='offset points',
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#e74c3c", lw=1),
+            arrowprops=dict(arrowstyle="->", color="#e74c3c")
+        )
         ax.set_xlabel("Speed (km/h)", fontsize=12, fontweight='bold')
         ax.set_ylabel("Energy (kWh)", fontsize=12, fontweight='bold')
-        ax.set_title("⚡ Energy consumption vs Speed", fontsize=14, fontweight='bold', pad=15)
-        ax.grid(True, alpha=0.3, linestyle=':')
-        ax.legend(fontsize=10)
+        ax.set_title("⚡ Energy vs Speed (green = feasible under time constraint)", fontsize=13, pad=12)
+        ax.grid(True, alpha=0.25, linestyle=':')
         plt.tight_layout()
         st.pyplot(fig_energy)
-        st.session_state["last_fig_energy"] = fig_energy
-        
-        # Export figure: energy vs speed (auto + on-demand)
-        try:
-            energy_path, _, _ = _route_tag_and_paths()
-            fig_energy.savefig(energy_path, dpi=200, bbox_inches='tight')
-        except Exception:
-            pass
-    
+
     with col_graph2:
-        fig_time, ax = plt.subplots(figsize=(8, 5))
-        ax.scatter(df["Speed_kmh"], df["Time_min"], 
-                   s=100, c='#e67e22', alpha=0.7, edgecolors='darkorange', linewidth=2)
-        ax.plot(df["Speed_kmh"], df["Time_min"], 
-                color='#95a5a6', linewidth=1, linestyle='--', alpha=0.5)
-        
-        best_speed_index = df[df["Speed_kmh"] == best["speed"]].index[0]
-        if best_speed_index < len(df):
-            ax.scatter(best["speed"], best["time_h"]*60, 
-                      s=200, c='#e74c3c', marker='*', edgecolors='darkred', 
-                      linewidth=2, label=f'Recommended: {best["speed"]} km/h', zorder=5)
-        
+        fig_time, ax = plt.subplots(figsize=(8.5, 5.2))
+        yT = df["Time_min"].values
+        ax.plot(x, yT, color="#95a5a6", linewidth=1.0, linestyle="--", alpha=0.6)
+        ax.scatter(x, yT, s=100, c=["#2ecc71" if int(s) in feasible_speeds else "#e67e22" for s in x], alpha=0.85, edgecolors='black', linewidth=0.8)
+        ax.scatter(best["speed"], best["time_h"]*60, s=220, c="#e74c3c", marker='*', edgecolors='black', linewidth=0.8, zorder=5)
+        ax.annotate(
+            f"Best: {best['speed']} km/h\n{best['time_h']*60:.1f} min",
+            xy=(best["speed"], best["time_h"]*60), xycoords='data',
+            xytext=(15, -25), textcoords='offset points',
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#e74c3c", lw=1),
+            arrowprops=dict(arrowstyle="->", color="#e74c3c")
+        )
+        if max_time_h is not None:
+            ax.axhline(max_time_h*60.0, color="#2ecc71", linestyle=":", linewidth=1.2, alpha=0.8, label="Max allowed time")
+            ax.legend(loc="best", fontsize=10)
         ax.set_xlabel("Speed (km/h)", fontsize=12, fontweight='bold')
         ax.set_ylabel("Time (minutes)", fontsize=12, fontweight='bold')
-        ax.set_title("⏱️ Travel time vs Speed", fontsize=14, fontweight='bold', pad=15)
-        ax.grid(True, alpha=0.3, linestyle=':')
-        ax.legend(fontsize=10)
+        ax.set_title("⏱️ Time vs Speed (green = feasible)", fontsize=13, pad=12)
+        ax.grid(True, alpha=0.25, linestyle=':')
         plt.tight_layout()
         st.pyplot(fig_time)
-        st.session_state["last_fig_time"] = fig_time
-
-        # Export figure: time vs speed (auto + on-demand)
-        try:
-            _, time_path, _ = _route_tag_and_paths()
-            fig_time.savefig(time_path, dpi=200, bbox_inches='tight')
-        except Exception:
-            pass
-
-    # Auto export CSV (after plots so df is final)
-    try:
-        _, _, csv_path = _route_tag_and_paths()
-        df.to_csv(csv_path, index=False)
-        st.caption(f"Auto-exported to: {csv_path}")
-    except Exception:
-        pass
-
-    # Single export button (sets a flag, export happens in same run below)
-    if st.button("💾 Export figures/CSV (after plots)"):
-        st.session_state["export_requested"] = True
-
-    # Perform export if requested
-    if st.session_state.get("export_requested"):
-        try:
-            energy_path, time_path, csv_path = _route_tag_and_paths()
-            os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
-            df.to_csv(csv_path, index=False)
-            if "last_fig_energy" in st.session_state:
-                st.session_state["last_fig_energy"].savefig(energy_path, dpi=200, bbox_inches='tight')
-            if "last_fig_time" in st.session_state:
-                st.session_state["last_fig_time"].savefig(time_path, dpi=200, bbox_inches='tight')
-            st.success(f"Exported:\n- {csv_path}\n- {energy_path}\n- {time_path}")
-        except Exception as e:
-            st.error(f"Export failed: {e}")
-        finally:
-            st.session_state["export_requested"] = False
-
-    # (aucune carte interactive dans la version d'origine)
 
     st.info("Tip: Adjust 'Max speed' and the 'Max time increase' in the sidebar to see the effect on the recommendation.")
 
