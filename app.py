@@ -18,21 +18,7 @@ st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_i
 # Clé ORS par défaut (peut être surchargée par st.secrets ou l'environnement)
 DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0="
 
-def get_ors_key() -> str:
-    """Récupère la clé ORS depuis secrets/env sans planter si secrets.toml est absent."""
-    # 1) Essayer st.secrets sans faire planter si le fichier n'existe pas
-    try:
-        if hasattr(st, "secrets") and "OPENROUTESERVICE_API_KEY" in st.secrets:  # type: ignore[attr-defined]
-            return str(st.secrets["OPENROUTESERVICE_API_KEY"])  # type: ignore[index]
-    except Exception:
-        pass
-    # 2) Variable d'environnement
-    env_val = os.environ.get("OPENROUTESERVICE_API_KEY")
-    if env_val:
-        return env_val
-    # 3) Valeur par défaut
-    return DEFAULT_ORS_API_KEY
-
+# Style global des graphiques
 try:
     plt.style.use('seaborn-v0_8-whitegrid')
 except Exception:
@@ -286,8 +272,8 @@ with st.sidebar:
         - 🌡️ **Temperature**: Extreme cold/heat reduces battery efficiency
         """)
     
-    # ORS API Key info (utilisée automatiquement)
-    ors_key = get_ors_key()
+    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
+    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
     st.caption("Using configured OpenRouteService API key")
     st.markdown("---")
     
@@ -322,15 +308,7 @@ with st.sidebar:
         aux_power_kw = st.number_input("Auxiliary power (kW)", 0.0, 5.0, 2.0, 0.1)
         battery_kwh = st.number_input("Battery capacity (kWh)", 20, 150, 60, 5)
 
-    # Air density (restored)
     rho_air = st.number_input("Air density (kg/m³)", 0.9, 1.5, 1.225, 0.01)
-
-    st.markdown("---")
-    st.subheader("🌡️ Environment (simplified)")
-    headwind_ms = st.number_input("Headwind (+) / Tailwind (-) (m/s)", -20.0, 20.0, 0.0, 0.5)
-    ambient_temp_c = st.number_input("Ambient temperature (°C)", -30.0, 50.0, 20.0, 1.0)
-    is_raining = st.checkbox("Rain (higher rolling resistance)", value=False)
-
     st.markdown("---")
     st.subheader("Candidate speeds (km/h)")
     default_speeds = list(range(50, 131, 5))
@@ -377,28 +355,9 @@ with st.sidebar:
     debug_mode = st.checkbox("Debug mode", value=False, help="Display intermediate information")
 
 # ------------------------------
-# Helpers – Physics & Energy (restored simple signature)
+# Helpers – Physics & Energy
 # ------------------------------
 g = 9.81
-
-def seg_energy_and_time(distance_m, slope, speed_kmh, mass_kg, cda, crr, rho_air, eta_drive, regen_eff, aux_power_kw=0, **kwargs):
-    if distance_m <= 0 or speed_kmh <= 0:
-        return 0.0, 0.0
-    slope = max(-0.5, min(0.5, slope))
-    v = max(speed_kmh, 1e-3) * (1000/3600)
-    F_aero = 0.5 * rho_air * cda * v * v
-    F_roll = crr * mass_kg * g * math.cos(math.atan(slope))
-    F_grade = mass_kg * g * math.sin(math.atan(slope))
-    P_wheels = (F_aero + F_roll + F_grade) * v
-    if P_wheels >= 0:
-        P_elec = P_wheels / max(eta_drive, 1e-6)
-    else:
-        P_elec = P_wheels * regen_eff
-    P_aux = aux_power_kw * 1000
-    P_total = P_elec + P_aux
-    t = distance_m / max(v, 1e-6)
-    E_Wh = P_total * (t / 3600.0)
-    return E_Wh, t / 3600.0
 
 def is_valid_ors_key(key: str) -> bool:
     if not isinstance(key, str):
@@ -456,6 +415,53 @@ def calculate_charging_stops(battery_kwh, energy_needed_kwh, start_pct, end_pct)
     num_stops = math.ceil(remaining_energy / usable_battery)
     
     return {"num_stops": max(0, num_stops), "usable_battery": usable_battery, "energy_per_leg": usable_battery}
+
+def seg_energy_and_time(distance_m, slope, speed_kmh, mass_kg, cda, crr, rho_air, eta_drive, regen_eff, aux_power_kw=0, **kwargs):
+    """
+    distance_m : segment length in meters
+    slope      : dh/dx (rise over run). Positive uphill.
+    speed_kmh  : vehicle speed (km/h), assumed constant over the segment
+    aux_power_kw : puissance auxiliaire (climatisation, chauffage, etc.)
+    returns    : (energy_Wh, time_hours)
+    """
+    # Validation des entrées
+    if distance_m <= 0 or speed_kmh <= 0:
+        return 0.0, 0.0
+    
+    # Limiter la pente à des valeurs réalistes
+    slope = max(-0.5, min(0.5, slope))  # -50% à +50% max
+    
+    v = max(speed_kmh, 1e-3) * (1000/3600)  # m/s
+    
+    # Aerodynamic drag power
+    F_aero = 0.5 * rho_air * cda * v * v
+    
+    # Rolling resistance (avec correction pour les pentes importantes)
+    F_roll = crr * mass_kg * g * math.cos(math.atan(slope))
+    
+    # Grade (gravity) - avec limitation pour éviter les valeurs aberrantes
+    F_grade = mass_kg * g * math.sin(math.atan(slope))
+
+    # Tractive power (at wheels)
+    P_wheels = (F_aero + F_roll + F_grade) * v  # Watts
+
+    # Bilan électrique avec gestion de la régénération
+    if P_wheels >= 0:
+        P_elec = P_wheels / max(eta_drive, 1e-6)
+    else:
+        # Régénération limitée par l'efficacité
+        P_elec = P_wheels * regen_eff
+
+    # Ajouter la consommation auxiliaire (toujours positive)
+    P_aux = aux_power_kw * 1000  # Convertir kW en W
+    P_total = P_elec + P_aux
+
+    # Time on the segment
+    t = distance_m / max(v, 1e-6)  # seconds
+
+    # Energy (Wh) = Power (W) * time (h)
+    E_Wh = P_total * (t / 3600.0)
+    return E_Wh, t / 3600.0
 
 def route_energy_time(coords, elevations, speed_kmh, **veh):
     """
@@ -945,8 +951,8 @@ with col2:
 run_btn = st.button("Compute advised speed")
 
 if run_btn:
-    # ORS API Key via helper sûr
-    ors_key = get_ors_key()
+    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
+    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
     if not ors_key or not is_valid_ors_key(ors_key):
         st.error("Invalid OpenRouteService API key. Paste your ORS key (not an error message).")
         st.stop()
@@ -1079,14 +1085,19 @@ if run_btn:
 
     # (debug segments supprimé)
 
-    # Environment pack for calculations
-    env = dict(headwind_ms=headwind_ms, temp_c=ambient_temp_c, rain=is_raining)
-
-    # Build vehicle parameters dict with validation
+    # Adjust auxiliary power based on HVAC
+    climate_power_adjustment = 0
+    if use_climate:
+        # Add extra HVAC power based on intensity (roughly 1–3 kW)
+        climate_power_adjustment = (climate_intensity / 100.0) * 3.0
+    
+    adjusted_aux_power = aux_power_kw + climate_power_adjustment
+    
+    # Compute total mass (vehicle + passengers)
+    total_mass_kg = float(mass_kg) + float(total_passenger_weight)
+    
+    # Vehicle params dict avec validation
     try:
-        climate_power_adjustment = (climate_intensity / 100.0) * 3.0 if use_climate else 0.0
-        adjusted_aux_power = float(aux_power_kw) + climate_power_adjustment
-        total_mass_kg = float(mass_kg) + float(total_passenger_weight)
         veh = dict(
             mass_kg=total_mass_kg,
             cda=float(cda),
@@ -1097,14 +1108,17 @@ if run_btn:
             aux_power_kw=adjusted_aux_power,
             battery_kwh=float(battery_kwh)
         )
+        
+        # Parameter validation
         if veh['mass_kg'] <= 0 or veh['eta_drive'] <= 0 or veh['eta_drive'] > 1:
             st.error("Invalid vehicle parameters")
             st.stop()
+            
     except (ValueError, TypeError) as e:
         st.error(f"Error in vehicle parameters: {e}")
         st.stop()
 
-    # Limit candidate speeds by user setting
+    # Limit candidate speeds by user_speed_limit
     candidates = [v for v in candidate_speeds if v <= user_speed_limit]
     if not candidates:
         candidates = [user_speed_limit]
@@ -1112,38 +1126,51 @@ if run_btn:
     # Evaluate with progress bar (with segmented speeds)
     results = []
     fastest_t = None
-
+    
     progress_bar = st.progress(0)
     status_text = st.empty()
-
+    
     for i, v in enumerate(candidates):
         status_text.text(f"Computing for {v} km/h (with per-segment limits)...")
         progress_bar.progress((i + 1) / len(candidates))
-
+        
         try:
+            # Utiliser des vitesses segmentées si activé, sinon vitesse constante
             if use_segmented_speeds and steps and detailed_segments:
+                # Créer des vitesses segmentées basées sur les types de route
                 segmented_speeds = create_segmented_speeds(coords, steps, detailed_segments, v, user_speed_limit, min_speed_delta)
+                
+                # Appliquer des ralentissements aux carrefours
                 if intersection_data["slowdown_points"]:
+                    # Reduce speed at slowdown points (intersections, roundabouts, sharp turns)
                     for slowdown in intersection_data["slowdown_points"]:
                         step_idx = slowdown.get("step_index", 0)
+                        # Estimer l'index approximatif dans les coordonnées
+                        # Approximation basée sur la proportion des steps
                         if steps and len(steps) > 0:
                             coord_ratio = step_idx / max(len(steps), 1)
                             coord_idx = min(int(coord_ratio * (len(coords) - 1)), len(segmented_speeds) - 1)
                             if 0 <= coord_idx < len(segmented_speeds):
+                                # Reduce speed by ~30% at intersections
                                 segmented_speeds[coord_idx] = max(segmented_speeds[coord_idx] * 0.7, 30)
-                (E_Wh, T_h, D_km), _ = route_energy_time(coords, elevations, segmented_speeds, env, **veh)
+                
+                # Utiliser les vitesses segmentées pour le calcul
+                E_Wh, T_h, D_km = route_energy_time(coords, elevations, segmented_speeds, **veh)
+                
+                # Calculer la vitesse moyenne pour l'affichage
                 avg_speed = sum(segmented_speeds) / len(segmented_speeds) if segmented_speeds else v
             else:
-                (E_Wh, T_h, D_km), _ = route_energy_time(coords, elevations, v, env, **veh)
+                # Vitesse constante (ancienne méthode)
+                E_Wh, T_h, D_km = route_energy_time(coords, elevations, v, **veh)
                 avg_speed = v
-
+            
             results.append(dict(speed=v, energy_Wh=E_Wh, time_h=T_h, dist_km=D_km, avg_speed=avg_speed))
             if fastest_t is None or T_h < fastest_t:
                 fastest_t = T_h
         except Exception as e:
             st.warning(f"Error for {v} km/h: {e}")
             continue
-
+    
     progress_bar.empty()
     status_text.empty()
 
@@ -1335,13 +1362,6 @@ if run_btn:
         st.pyplot(fig_time)
 
     st.info("Tip: Adjust 'Max speed' and the 'Max time increase' in the sidebar to see the effect on the recommendation.")
-
-    # Detailed dataframe for chosen strategy (for export and map)
-    if use_segmented_speeds and steps and detailed_segments:
-        segmented_speeds_best = create_segmented_speeds(coords, steps, detailed_segments, best['speed'], user_speed_limit, min_speed_delta)
-        (E_best, T_best, D_best), df_segments = route_energy_time(coords, elevations, segmented_speeds_best, env, **veh)
-    else:
-        (E_best, T_best, D_best), df_segments = route_energy_time(coords, elevations, best['speed'], env, **veh)
 
 else:
     st.info("Enter an origin and a destination, provide your ORS key, then click *Compute advised speed*.")
