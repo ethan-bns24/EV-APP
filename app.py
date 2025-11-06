@@ -1062,6 +1062,16 @@ if run_btn:
         
         coords = [[lon, lat, 0] for lon, lat in zip(lons, lats)]
         elevations = [0.0] * len(coords)
+
+        # Tenter quand même de récupérer le profil altimétrique si autorisé
+        if use_elevation:
+            try:
+                elev_try = ors_elevation_along(coords, ors_key)
+                if isinstance(elev_try, list) and len(elev_try) == len(coords):
+                    elevations = elev_try
+                    st.info("Elevation profile retrieved on simplified route ✅")
+            except Exception:
+                pass
     
     if len(elevations) != len(coords):
         st.error("Inconsistent data: elevation and coordinate counts differ")
