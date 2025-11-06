@@ -18,8 +18,14 @@ st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_i
 # Clé ORS par défaut (peut être surchargée par st.secrets ou l'environnement)
 DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0="
 
-# Helper: lire la clé depuis l'env sinon défaut
+# Helper: lire la clé (secrets si dispo, sinon env, sinon défaut)
 def get_ors_key() -> str:
+    try:
+        # st.secrets n'existe pas forcément en local; on encapsule dans un try/except
+        if hasattr(st, "secrets") and "OPENROUTESERVICE_API_KEY" in st.secrets:  # type: ignore[attr-defined]
+            return str(st.secrets["OPENROUTESERVICE_API_KEY"])  # type: ignore[index]
+    except Exception:
+        pass
     return os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY)
 
 # Style global des graphiques
@@ -738,7 +744,7 @@ def create_segmented_speeds(coords, steps, detailed_segments, candidate_speed: i
 # OpenRouteService API wrappers
 # ------------------------------
 
-# Fallback local pour géocodage en cas d’échec réseau (villes les plus utilisées)
+# Fallback local pour géocodage en cas d'échec réseau (villes les plus utilisées)
 CITY_COORDS = {
     "paris, france": [2.3522, 48.8566],
     "lyon, france": [4.8357, 45.7640],
