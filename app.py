@@ -18,7 +18,21 @@ st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_i
 # Clé ORS par défaut (peut être surchargée par st.secrets ou l'environnement)
 DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0="
 
-# Style global des graphiques
+def get_ors_key() -> str:
+    """Récupère la clé ORS depuis secrets/env sans planter si secrets.toml est absent."""
+    # 1) Essayer st.secrets sans faire planter si le fichier n'existe pas
+    try:
+        if hasattr(st, "secrets") and "OPENROUTESERVICE_API_KEY" in st.secrets:  # type: ignore[attr-defined]
+            return str(st.secrets["OPENROUTESERVICE_API_KEY"])  # type: ignore[index]
+    except Exception:
+        pass
+    # 2) Variable d'environnement
+    env_val = os.environ.get("OPENROUTESERVICE_API_KEY")
+    if env_val:
+        return env_val
+    # 3) Valeur par défaut
+    return DEFAULT_ORS_API_KEY
+
 try:
     plt.style.use('seaborn-v0_8-whitegrid')
 except Exception:
@@ -272,8 +286,8 @@ with st.sidebar:
         - 🌡️ **Temperature**: Extreme cold/heat reduces battery efficiency
         """)
     
-    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
-    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
+    # ORS API Key info (utilisée automatiquement)
+    ors_key = get_ors_key()
     st.caption("Using configured OpenRouteService API key")
     st.markdown("---")
     
@@ -988,8 +1002,8 @@ with col2:
 run_btn = st.button("Compute advised speed")
 
 if run_btn:
-    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
-    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
+    # ORS API Key via helper sûr
+    ors_key = get_ors_key()
     if not ors_key or not is_valid_ors_key(ors_key):
         st.error("Invalid OpenRouteService API key. Paste your ORS key (not an error message).")
         st.stop()
