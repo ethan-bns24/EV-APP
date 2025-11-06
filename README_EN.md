@@ -111,3 +111,4 @@ For questions or suggestions, open an issue on GitHub.
 
 Made with ❤️ to optimize your EV driving experience.
 
+

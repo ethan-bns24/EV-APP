@@ -1125,6 +1125,33 @@ if run_btn:
     # Environment pack for calculations
     env = dict(headwind_ms=headwind_ms, temp_c=ambient_temp_c, rain=is_raining)
 
+    # Build vehicle parameters dict with validation
+    try:
+        climate_power_adjustment = (climate_intensity / 100.0) * 3.0 if use_climate else 0.0
+        adjusted_aux_power = float(aux_power_kw) + climate_power_adjustment
+        total_mass_kg = float(mass_kg) + float(total_passenger_weight)
+        veh = dict(
+            mass_kg=total_mass_kg,
+            cda=float(cda),
+            crr=float(crr),
+            rho_air=float(rho_air),
+            eta_drive=float(eta_drive),
+            regen_eff=float(regen_eff),
+            aux_power_kw=adjusted_aux_power,
+            battery_kwh=float(battery_kwh)
+        )
+        if veh['mass_kg'] <= 0 or veh['eta_drive'] <= 0 or veh['eta_drive'] > 1:
+            st.error("Invalid vehicle parameters")
+            st.stop()
+    except (ValueError, TypeError) as e:
+        st.error(f"Error in vehicle parameters: {e}")
+        st.stop()
+
+    # Limit candidate speeds by user setting
+    candidates = [v for v in candidate_speeds if v <= user_speed_limit]
+    if not candidates:
+        candidates = [user_speed_limit]
+
     # Evaluate with progress bar (with segmented speeds)
     results = []
     fastest_t = None
