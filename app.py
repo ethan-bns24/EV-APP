@@ -363,6 +363,15 @@ with st.sidebar:
 # ------------------------------
 g = 9.81
 
+def _haversine_m(lon1, lat1, lon2, lat2):
+    R = 6371000.0
+    import math as _m
+    dlat = _m.radians(lat2 - lat1)
+    dlon = _m.radians(lon2 - lon1)
+    a = _m.sin(dlat/2)**2 + _m.cos(_m.radians(lat1))*_m.cos(_m.radians(lat2))*_m.sin(dlon/2)**2
+    c = 2 * _m.atan2(_m.sqrt(a), _m.sqrt(1-a))
+    return R * c
+
 def is_valid_ors_key(key: str) -> bool:
     if not isinstance(key, str):
         return False
@@ -1055,8 +1064,11 @@ if run_btn:
         start_lon, start_lat = coords[0][0], coords[0][1]
         end_lon, end_lat = coords[1][0], coords[1][1]
         
-        # Interpoler 10 points entre départ et arrivée
-        n_points = 10
+        # Distance droite entre départ et arrivée
+        d0_m = _haversine_m(start_lon, start_lat, end_lon, end_lat)
+        # Nombre de points adapté à la distance (entre 50 et 500)
+        n_points = max(50, min(500, int(max(d0_m, 1.0) / 1000.0) * 10))
+        
         lons = np.linspace(start_lon, end_lon, n_points)
         lats = np.linspace(start_lat, end_lat, n_points)
         
@@ -1072,6 +1084,10 @@ if run_btn:
                     st.info("Elevation profile retrieved on simplified route ✅")
             except Exception:
                 pass
+        
+        # Mettre à jour les métriques brutes pour le récap debug
+        length_m = d0_m
+        duration_s = 0
     
     if len(elevations) != len(coords):
         st.error("Inconsistent data: elevation and coordinate counts differ")
