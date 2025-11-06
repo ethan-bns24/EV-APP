@@ -8,11 +8,15 @@ import pandas as pd
 from typing import List, Tuple, Dict, Optional
 import concurrent.futures
 from functools import lru_cache
+import os
 
 # ------------------------------
 # App Config
 # ------------------------------
 st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_icon="🚗")
+
+# Clé ORS par défaut (peut être surchargée par st.secrets ou l'environnement)
+DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0="
 
 # Style global des graphiques
 try:
@@ -268,7 +272,9 @@ with st.sidebar:
         - 🌡️ **Temperature**: Extreme cold/heat reduces battery efficiency
         """)
     
-    ors_key = st.text_input("OpenRouteService API Key", type="password", help="Create a free key at openrouteservice.org and paste it here.")
+    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
+    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
+    st.caption("Using configured OpenRouteService API key")
     st.markdown("---")
     
     # Vehicle profile
@@ -945,6 +951,8 @@ with col2:
 run_btn = st.button("Compute advised speed")
 
 if run_btn:
+    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
+    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
     if not ors_key or not is_valid_ors_key(ors_key):
         st.error("Invalid OpenRouteService API key. Paste your ORS key (not an error message).")
         st.stop()
