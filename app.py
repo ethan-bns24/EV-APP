@@ -767,61 +767,87 @@ def ors_geocode(text, api_key):
         lon, lat = feats[0]["geometry"]["coordinates"]
         return [lon, lat]
     except Exception:
-        # Fallback statique (sans réseau)
         key = (text or "").strip().lower()
         if key in CITY_COORDS:
             return CITY_COORDS[key]
-        # Essayer aussi sans ", france"
         if key.endswith(", france") and key.replace(", france", "") in CITY_COORDS:
             return CITY_COORDS[key.replace(", france", "")]
         return None
 
-def ors_route_steps(start_lonlat, end_lonlat, api_key):
-    """Récupère les étapes (instructions) ORS pour estimer les carrefours/ralentissements."""
-    url = "https://api.openrouteservice.org/v2/directions/driving-car"
-    headers = {"Authorization": api_key, "Content-Type": "application/json; charset=utf-8"}
-    body = {
-        "coordinates": [start_lonlat, end_lonlat],
-        "elevation": False,
-        "instructions": True
-    }
+# --- OSRM FALLBACK (no key) ---
+
+def osrm_route(start_lonlat, end_lonlat, include_instructions=False):
     try:
-        r = requests.post(url, headers=headers, data=json.dumps(body), timeout=60)
+        base = "https://router.project-osrm.org/route/v1/driving/"
+        coords = f"{start_lonlat[0]},{start_lonlat[1]};{end_lonlat[0]},{end_lonlat[1]}"
+        params = {
+            "overview": "full",
+            "geometries": "geojson",
+            "steps": str(include_instructions).lower(),
+            "alternatives": "false"
+        }
+        r = requests.get(base + coords, params=params, timeout=60)
         r.raise_for_status()
-        data = r.json()
-        if "routes" not in data or not data["routes"]:
+        j = r.json()
+        routes = j.get("routes", [])
+        if not routes:
+            return [], 0, 0
+        route = routes[0]
+        geometry = route.get("geometry", {})
+        coords_list = geometry.get("coordinates", []) if isinstance(geometry, dict) else []
+        length_m = float(route.get("distance", 0.0))
+        duration_s = float(route.get("duration", 0.0))
+        return coords_list, length_m, duration_s
+    except Exception:
+        return [], 0, 0
+
+
+def osrm_route_steps(start_lonlat, end_lonlat):
+    try:
+        base = "https://router.project-osrm.org/route/v1/driving/"
+        coords = f"{start_lonlat[0]},{start_lonlat[1]};{end_lonlat[0]},{end_lonlat[1]}"
+        params = {
+            "overview": "full",
+            "geometries": "geojson",
+            "steps": "true",
+            "alternatives": "false"
+        }
+        r = requests.get(base + coords, params=params, timeout=60)
+        r.raise_for_status()
+        j = r.json()
+        routes = j.get("routes", [])
+        if not routes:
             return [], []
-        route = data["routes"][0]
-        segments = route.get("segments", [])
+        legs = routes[0].get("legs", [])
         steps = []
         detailed_segments = []
-        for seg in segments:
-            steps.extend(seg.get("steps", []))
-            # Extraire les informations détaillées des segments (types de route, etc.)
-            detailed_segments.append(seg)
+        for leg in legs:
+            s = leg.get("steps", [])
+            steps.extend(s)
+            # OSRM ne fournit pas les mêmes segments que ORS; on stocke la distance pour mapping simple
+            detailed_segments.append({"distance": leg.get("distance", 0), "steps": s})
         return steps, detailed_segments
     except Exception:
         return [], []
+
+# --- ORS (avec fallback OSRM) ---
 
 def ors_route(start_lonlat, end_lonlat, api_key, include_instructions=False):
     url = "https://api.openrouteservice.org/v2/directions/driving-car"
     headers = {"Authorization": api_key, "Content-Type": "application/json; charset=utf-8"}
     body = {
         "coordinates": [start_lonlat, end_lonlat],
-        "elevation": False,  # récupérer d'abord la géométrie pure, élévation ensuite
+        "elevation": False,
         "instructions": include_instructions
     }
     try:
         r = requests.post(url, headers=headers, params={"format": "geojson"}, data=json.dumps(body), timeout=60)
         r.raise_for_status()
         data = r.json()
-        
-        # Extract geometry with better error handling
         try:
             coords = []
             length_m = 0
             duration_s = 0
-
             if "routes" in data and data["routes"]:
                 route = data["routes"][0]
                 geometry = route.get("geometry")
@@ -831,7 +857,6 @@ def ors_route(start_lonlat, end_lonlat, api_key, include_instructions=False):
                     try:
                         import polyline
                         decoded = polyline.decode(geometry)
-                        # polyline returns [(lat, lon)], we convert to [lon, lat]
                         coords = [[lon, lat] for (lat, lon) in decoded]
                     except Exception:
                         coords = []
@@ -850,21 +875,52 @@ def ors_route(start_lonlat, end_lonlat, api_key, include_instructions=False):
                         summary = segments[0].get("summary", {})
                         length_m = summary.get("distance", 0)
                         duration_s = summary.get("duration", 0)
-
             if not coords:
                 st.warning("Géométrie non disponible, fallback sur départ/arrivée")
                 coords = [start_lonlat, end_lonlat]
-
             return coords, length_m, duration_s
-
         except (KeyError, IndexError, ValueError) as e:
             st.error(f"Erreur lors de l'extraction des données de l'itinéraire: {e}")
             st.error(f"Réponse API: {json.dumps(data, indent=2)}")
             return [], 0, 0
     except Exception:
-        # Fallback hors réseau: ligne droite départ→arrivée
+        # Fallback OSRM (sans clé)
+        coords, length_m, duration_s = osrm_route(start_lonlat, end_lonlat, include_instructions)
+        if coords:
+            st.info("Using OSRM fallback for directions")
+            return coords, length_m, duration_s
         st.warning("ORS indisponible – fallback simplifié (ligne droite)")
         return [start_lonlat, end_lonlat], 0, 0
+
+
+def ors_route_steps(start_lonlat, end_lonlat, api_key):
+    url = "https://api.openrouteservice.org/v2/directions/driving-car"
+    headers = {"Authorization": api_key, "Content-Type": "application/json; charset=utf-8"}
+    body = {
+        "coordinates": [start_lonlat, end_lonlat],
+        "elevation": False,
+        "instructions": True
+    }
+    try:
+        r = requests.post(url, headers=headers, data=json.dumps(body), timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        if "routes" not in data or not data["routes"]:
+            raise ValueError("no_routes")
+        route = data["routes"][0]
+        segments = route.get("segments", [])
+        steps = []
+        detailed_segments = []
+        for seg in segments:
+            steps.extend(seg.get("steps", []))
+            detailed_segments.append(seg)
+        return steps, detailed_segments
+    except Exception:
+        # Fallback OSRM steps
+        steps, detailed_segments = osrm_route_steps(start_lonlat, end_lonlat)
+        if steps:
+            st.info("Using OSRM fallback for steps")
+        return steps, detailed_segments
 
 def ors_elevation_along(coords, api_key):
     # If directions include z as third coordinate, extract it directly.
@@ -1423,6 +1479,88 @@ if run_btn:
         st.pyplot(fig_time)
 
     st.info("Tip: Adjust 'Max speed' and the 'Max time increase' in the sidebar to see the effect on the recommendation.")
+
+    # ------------------------------
+    # ORS Debug – afficher les réponses brutes
+    # ------------------------------
+
+    def debug_ors_check(orig_text: str, dest_text: str, api_key: str):
+        st.subheader("🔎 ORS self‑check (raw responses)")
+
+        # 1) Geocode origin
+        try:
+            g_url = "https://api.openrouteservice.org/geocode/search"
+            g_params = {"api_key": api_key, "text": orig_text, "size": 1}
+            gr = requests.get(g_url, params=g_params, timeout=30)
+            st.write("Geocode origin status:", gr.status_code)
+            try:
+                st.code(json.dumps(gr.json(), indent=2)[:2000], language="json")
+            except Exception:
+                st.code((gr.text or "")[:1000])
+        except Exception as e:
+            st.error(f"Geocode origin error: {e}")
+
+        # 2) Geocode destination
+        try:
+            g_params = {"api_key": api_key, "text": dest_text, "size": 1}
+            gr2 = requests.get(g_url, params=g_params, timeout=30)
+            st.write("Geocode destination status:", gr2.status_code)
+            try:
+                st.code(json.dumps(gr2.json(), indent=2)[:2000], language="json")
+            except Exception:
+                st.code((gr2.text or "")[:1000])
+        except Exception as e:
+            st.error(f"Geocode destination error: {e}")
+
+        # 3) Directions POST
+        try:
+            # Si géocodes ont marché, extraire coord
+            def _first_coord(resp):
+                try:
+                    feats = resp.json().get("features", [])
+                    if feats:
+                        return feats[0]["geometry"]["coordinates"]
+                except Exception:
+                    return None
+                return None
+            start = _first_coord(gr) if 'gr' in locals() else None
+            end = _first_coord(gr2) if 'gr2' in locals() else None
+            if not start or not end:
+                st.warning("Directions POST skipped (missing geocode coords)")
+            else:
+                d_url = "https://api.openrouteservice.org/v2/directions/driving-car"
+                headers = {"Authorization": api_key, "Content-Type": "application/json; charset=utf-8"}
+                body = {"coordinates": [start, end], "elevation": False, "instructions": True}
+                dr = requests.post(d_url, headers=headers, params={"format": "geojson"}, data=json.dumps(body), timeout=60)
+                st.write("Directions POST status:", dr.status_code)
+                try:
+                    st.code(json.dumps(dr.json(), indent=2)[:2000], language="json")
+                except Exception:
+                    st.code((dr.text or "")[:1000])
+                # 4) Directions GET fallback
+                params = {
+                    "api_key": api_key,
+                    "start": f"{start[0]},{start[1]}",
+                    "end": f"{end[0]},{end[1]}",
+                    "format": "geojson",
+                    "elevation": "false",
+                    "instructions": "true",
+                }
+                drg = requests.get(d_url, params=params, timeout=60)
+                st.write("Directions GET status:", drg.status_code)
+                try:
+                    st.code(json.dumps(drg.json(), indent=2)[:2000], language="json")
+                except Exception:
+                    st.code((drg.text or "")[:1000])
+        except Exception as e:
+            st.error(f"Directions check error: {e}")
+
+# Bouton de diagnostic ORS en mode debug (affiché en dehors du run)
+if 'debug_mode' in locals() and debug_mode:
+    with st.expander("🔧 ORS diagnostics", expanded=False):
+        if st.button("Run ORS self‑check (raw responses)"):
+            key = get_ors_key()
+            debug_ors_check(orig_text or "Paris, France", dest_text or "Lyon, France", key)
 
 else:
     st.info("Enter an origin and a destination, provide your ORS key, then click *Compute advised speed*.")
