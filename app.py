@@ -18,6 +18,10 @@ st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_i
 # Clé ORS par défaut (peut être surchargée par st.secrets ou l'environnement)
 DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0="
 
+# Helper: lire la clé depuis l'env sinon défaut
+def get_ors_key() -> str:
+    return os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY)
+
 # Style global des graphiques
 try:
     plt.style.use('seaborn-v0_8-whitegrid')
@@ -273,7 +277,7 @@ with st.sidebar:
         """)
     
     # ORS API Key: secrets/env fallback, sinon clé par défaut codée
-    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
+    ors_key = get_ors_key()
     st.caption("Using configured OpenRouteService API key")
     st.markdown("---")
     
@@ -951,8 +955,8 @@ with col2:
 run_btn = st.button("Compute advised speed")
 
 if run_btn:
-    # ORS API Key: secrets/env fallback, sinon clé par défaut codée
-    ors_key = st.secrets.get("OPENROUTESERVICE_API_KEY", os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY))
+    # ORS API Key via helper (env or default)
+    ors_key = get_ors_key()
     if not ors_key or not is_valid_ors_key(ors_key):
         st.error("Invalid OpenRouteService API key. Paste your ORS key (not an error message).")
         st.stop()
