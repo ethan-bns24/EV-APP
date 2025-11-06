@@ -253,6 +253,143 @@ Insert here the screenshots exported from the app (energy vs speed and time vs s
 \paragraph{Paris \textrightarrow{} Beauvais (shorter trip)}
 Likewise, include the screenshots for the shorter route. Captures can be appended in the annex if preferred.
 
+\section{Detailed Case Studies}
+This section provides rigorous, reproducible settings for two scenarios, with explicit parameters to ensure scientific consistency.
+
+\subsection{Common Parameters}
+Unless otherwise stated, we use the following global settings:
+\begin{itemize}[leftmargin=1.2em]
+  \item Air density: \(\rho = \SI{1.225}{kg.m^{-3}}\)
+  \item Elevation: enabled; if API fails on short routes, assume flat elevation
+  \item Segmented speed limits: enabled; minimum delta below limit: \SI{20}{km.h^{-1}}
+  \item Time constraint: maximum increase vs fastest candidate: \(\delta=15\%\)
+  \item Objective: energy minimization under time constraint (unless specified)
+  \item Electricity cost: \SI{0.20}{\euro/kWh}
+\end{itemize}
+
+\subsection{Case A: Paris \textrightarrow{} Marseille (Long Trip)}
+\subsubsection{Parameterization}
+\begin{table}[H]
+  \centering
+  \caption{Input parameters — Paris→Marseille}
+  \label{tab:pm-params}
+  \begin{tabular}{ll}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    Origin / Destination & Paris, France / Marseille, France \\
+    Vehicle profile & Tesla Model 3 (example) \\
+    Mass (vehicle) & \SI{1850}{kg} \\
+    Frontal area × Cd (CdA) & 0.58 \si{m^2} \\
+    Rolling resistance (Crr) & 0.008 \\
+    Drivetrain efficiency (\(\eta\)) & 0.95 \\
+    Regen efficiency (\(\eta_{reg}\)) & 0.85 \\
+    Aux power base & \SI{2.0}{kW} \\
+    Battery capacity & \SI{75}{kWh} \\
+    Passengers (count × avg) & 2 × \SI{75}{kg} (incl. driver) \\
+    HVAC usage / intensity & On / 50\% \\
+    Elevation data & Enabled \\
+    Segmented speed limits & Enabled (min delta \SI{20}{km.h^{-1}}) \\
+    Candidate speeds & 50:5:130 \si{km.h^{-1}} (integer step 5) \\
+    User max speed & \SI{130}{km.h^{-1}} \\
+    Battery SoC start / target & 100\% / 20\% \\
+    Time constraint \(\delta\) & 15\% \\
+    Objective & Minimize energy under time constraint \\
+    Electricity cost & \SI{0.20}{\euro/kWh} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Protocol}
+\begin{enumerate}[leftmargin=1.4em]
+  \item Retrieve route geometry and elevation; validate array lengths.
+  \item Build per-segment speeds from road types, apply slowdowns at intersections.
+  \item Evaluate all candidate speeds; compute total energy \(E\), time \(T\), distance \(D\).
+  \item Select recommended speed with \(T\le(1+\delta)T_{\min}\), minimize \(E\).
+  \item Report charging needs from SoC start/target and safety margin.
+\end{enumerate}
+
+\subsubsection{Results (Illustrative Placeholders)}
+\begin{table}[H]
+  \centering
+  \caption{Paris→Marseille — Summary metrics}
+  \label{tab:pm-results}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Metric & Value & Unit & Notes & Feasible? \\
+    \midrule
+    Recommended speed & 100 & km/h & Under time constraint & Yes \\
+    Energy & 24.8 & kWh & Total trip energy & Yes \\
+    Time & 165.0 & min & Total trip time & Yes \\
+    Distance & 775.0 & km & Route length & — \\
+    Charges needed & 2 & — & Given SoC 100→20\% & — \\
+    Avg speed (segmented) & 96.3 & km/h & With slowdowns & — \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Sensitivity (Passengers / HVAC / Delta).}
+We vary passengers from 0 to 5 (\SI{60}–\SI{90}{kg}), HVAC 0–100\%, and min delta 10–30 \si{km.h^{-1}}. Energy rises with mass and HVAC; tighter deltas reduce energy but can increase time.
+
+\subsection{Case B: Paris \textrightarrow{} Beauvais (Shorter Trip)}
+\subsubsection{Parameterization}
+\begin{table}[H]
+  \centering
+  \caption{Input parameters — Paris→Beauvais}
+  \label{tab:pb-params}
+  \begin{tabular}{ll}
+    \toprule
+    Parameter & Value \\
+    \midrule
+    Origin / Destination & Paris, France / Beauvais, France \\
+    Vehicle profile & Tesla Model 3 (example) \\
+    Mass (vehicle) & \SI{1850}{kg} \\
+    Frontal area × Cd (CdA) & 0.58 \si{m^2} \\
+    Rolling resistance (Crr) & 0.008 \\
+    Drivetrain efficiency (\(\eta\)) & 0.95 \\
+    Regen efficiency (\(\eta_{reg}\)) & 0.85 \\
+    Aux power base & \SI{2.0}{kW} \\
+    Battery capacity & \SI{75}{kWh} \\
+    Passengers (count × avg) & 1 × \SI{75}{kg} (incl. driver) \\
+    HVAC usage / intensity & On / 30\% \\
+    Elevation data & Enabled (fallback flat if needed) \\
+    Segmented speed limits & Enabled (min delta \SI{20}{km.h^{-1}}) \\
+    Candidate speeds & 50:5:130 \si{km.h^{-1}} \\
+    User max speed & \SI{110}{km.h^{-1}} \\
+    Battery SoC start / target & 100\% / 50\% \\
+    Time constraint \(\delta\) & 15\% \\
+    Objective & Weighted score (optional) \\
+    Electricity cost & \SI{0.20}{\euro/kWh} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Results (Illustrative Placeholders)}
+\begin{table}[H]
+  \centering
+  \caption{Paris→Beauvais — Summary metrics}
+  \label{tab:pb-results}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Metric & Value & Unit & Notes & Feasible? \\
+    \midrule
+    Recommended speed & 90 & km/h & Under time constraint & Yes \\
+    Energy & 7.9 & kWh & Total trip energy & Yes \\
+    Time & 68.5 & min & Total trip time & Yes \\
+    Distance & 85.0 & km & Route length & — \\
+    Charges needed & 0 & — & SoC 100→50\% & — \\
+    Avg speed (segmented) & 86.4 & km/h & With slowdowns & — \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Scientific Notes}
+\begin{itemize}[leftmargin=1.2em]
+  \item Parameter tables enumerate all variables impacting \(E\) and \(T\) to ensure reproducibility.
+  \item The energy model assumptions (Section Energy Model) justify the expected monotonic trends.
+  \item Sensitivity runs should vary one factor at a time to isolate effects.
+\end{itemize}
+
 \section{Sensitivity Analysis}
 We vary passengers (0–5, \SI{60}{\kilo\gram}–\SI{90}{\kilo\gram} per person), HVAC intensity (0–100\%), and the per-segment speed delta policy. As expected, higher mass and HVAC increase energy; conservative speed deltas reduce consumption at moderate time cost.
 
