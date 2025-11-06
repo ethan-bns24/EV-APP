@@ -308,7 +308,12 @@ with st.sidebar:
         aux_power_kw = st.number_input("Auxiliary power (kW)", 0.0, 5.0, 2.0, 0.1)
         battery_kwh = st.number_input("Battery capacity (kWh)", 20, 150, 60, 5)
 
-    rho_air = st.number_input("Air density (kg/m³)", 0.9, 1.5, 1.225, 0.01)
+    st.markdown("---")
+    st.subheader("🌡️ Environment (simplified)")
+    headwind_ms = st.number_input("Headwind (+) / Tailwind (-) (m/s)", -20.0, 20.0, 0.0, 0.5)
+    ambient_temp_c = st.number_input("Ambient temperature (°C)", -30.0, 50.0, 20.0, 1.0)
+    is_raining = st.checkbox("Rain (higher rolling resistance)", value=False)
+
     st.markdown("---")
     st.subheader("Candidate speeds (km/h)")
     default_speeds = list(range(50, 131, 5))
@@ -416,52 +421,84 @@ def calculate_charging_stops(battery_kwh, energy_needed_kwh, start_pct, end_pct)
     
     return {"num_stops": max(0, num_stops), "usable_battery": usable_battery, "energy_per_leg": usable_battery}
 
-def seg_energy_and_time(distance_m, slope, speed_kmh, mass_kg, cda, crr, rho_air, eta_drive, regen_eff, aux_power_kw=0, **kwargs):
+def seg_energy_and_time(distance_m, slope, speed_kmh, mass_kg, cda, crr, rho_air, eta_drive, regen_eff, aux_power_kw=0, headwind_ms=0.0, temp_c=20.0, rain=False, **kwargs):
     """
     distance_m : segment length in meters
     slope      : dh/dx (rise over run). Positive uphill.
     speed_kmh  : vehicle speed (km/h), assumed constant over the segment
-    aux_power_kw : puissance auxiliaire (climatisation, chauffage, etc.)
+    headwind_ms: positive = headwind, negative = tailwind
+    rain       : increases rolling resistance
     returns    : (energy_Wh, time_hours)
     """
-    # Validation des entrées
     if distance_m <= 0 or speed_kmh <= 0:
         return 0.0, 0.0
-    
-    # Limiter la pente à des valeurs réalistes
-    slope = max(-0.5, min(0.5, slope))  # -50% à +50% max
-    
-    v = max(speed_kmh, 1e-3) * (1000/3600)  # m/s
-    
-    # Aerodynamic drag power
-    F_aero = 0.5 * rho_air * cda * v * v
-    
-    # Rolling resistance (avec correction pour les pentes importantes)
-    F_roll = crr * mass_kg * g * math.cos(math.atan(slope))
-    
-    # Grade (gravity) - avec limitation pour éviter les valeurs aberrantes
+
+    slope = max(-0.5, min(0.5, slope))
+
+    v = max(speed_kmh, 1e-3) * (1000/3600)  # vehicle ground speed (m/s)
+    v_air = max(v - headwind_ms, 0.0)        # relative air speed (m/s)
+
+    # Aerodynamic drag power (with wind)
+    F_aero = 0.5 * rho_air * cda * v_air * v_air
+
+    # Rolling resistance (rain increases Crr slightly)
+    crr_eff = crr * (1.15 if rain else 1.0)
+    F_roll = crr_eff * mass_kg * g * math.cos(math.atan(slope))
+
     F_grade = mass_kg * g * math.sin(math.atan(slope))
 
-    # Tractive power (at wheels)
-    P_wheels = (F_aero + F_roll + F_grade) * v  # Watts
+    P_wheels = (F_aero + F_roll + F_grade) * v  # power at wheels depends on ground speed
 
-    # Bilan électrique avec gestion de la régénération
     if P_wheels >= 0:
         P_elec = P_wheels / max(eta_drive, 1e-6)
     else:
-        # Régénération limitée par l'efficacité
         P_elec = P_wheels * regen_eff
 
-    # Ajouter la consommation auxiliaire (toujours positive)
-    P_aux = aux_power_kw * 1000  # Convertir kW en W
+    # Temperature-driven HVAC adjustment (simple): add 0–1.5 kW if |temp-20| up to 20°C
+    temp_penalty_kw = min(abs(temp_c - 20.0) / 20.0, 1.0) * 1.5
+    P_aux = (aux_power_kw + temp_penalty_kw) * 1000
+
     P_total = P_elec + P_aux
-
-    # Time on the segment
-    t = distance_m / max(v, 1e-6)  # seconds
-
-    # Energy (Wh) = Power (W) * time (h)
+    t = distance_m / max(v, 1e-6)
     E_Wh = P_total * (t / 3600.0)
     return E_Wh, t / 3600.0
+
+
+def route_energy_time_detailed(coords, elevations, speed_kmh, env, **veh):
+    """Return total metrics and a per-segment dataframe.
+    env: dict with headwind_ms, temp_c, rain
+    """
+    records = []
+    total_E = total_T = total_D = 0.0
+    is_speed_list = isinstance(speed_kmh, list)
+    if is_speed_list and len(speed_kmh) != len(coords) - 1:
+        speed_kmh = speed_kmh[0] if speed_kmh else 50
+        is_speed_list = False
+
+    for i in range(1, len(coords)):
+        if len(coords[i-1]) < 2 or len(coords[i]) < 2:
+            continue
+        lon1, lat1 = coords[i-1][0], coords[i-1][1]
+        lon2, lat2 = coords[i][0], coords[i][1]
+        R = 6371000.0
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        d = R * c
+        if d < 1e-2:
+            continue
+        h1 = elevations[i-1]
+        h2 = elevations[i]
+        slope = (h2 - h1) / max(d, 1e-6)
+        seg_speed = speed_kmh[i-1] if is_speed_list else speed_kmh
+        E_Wh, T_h = seg_energy_and_time(d, slope, seg_speed, headwind_ms=env.get("headwind_ms",0.0), temp_c=env.get("temp_c",20.0), rain=env.get("rain",False), **veh)
+        total_E += E_Wh
+        total_T += T_h
+        total_D += d
+        records.append(dict(index=i-1, distance_m=d, slope=slope, speed_kmh=seg_speed, energy_Wh=E_Wh, time_s=T_h*3600.0, elev1=h1, elev2=h2, lon1=lon1, lat1=lat1, lon2=lon2, lat2=lat2))
+    df = pd.DataFrame(records)
+    return (total_E, total_T, total_D/1000.0), df
 
 def route_energy_time(coords, elevations, speed_kmh, **veh):
     """
@@ -1085,92 +1122,44 @@ if run_btn:
 
     # (debug segments supprimé)
 
-    # Adjust auxiliary power based on HVAC
-    climate_power_adjustment = 0
-    if use_climate:
-        # Add extra HVAC power based on intensity (roughly 1–3 kW)
-        climate_power_adjustment = (climate_intensity / 100.0) * 3.0
-    
-    adjusted_aux_power = aux_power_kw + climate_power_adjustment
-    
-    # Compute total mass (vehicle + passengers)
-    total_mass_kg = float(mass_kg) + float(total_passenger_weight)
-    
-    # Vehicle params dict avec validation
-    try:
-        veh = dict(
-            mass_kg=total_mass_kg,
-            cda=float(cda),
-            crr=float(crr),
-            rho_air=float(rho_air),
-            eta_drive=float(eta_drive),
-            regen_eff=float(regen_eff),
-            aux_power_kw=adjusted_aux_power,
-            battery_kwh=float(battery_kwh)
-        )
-        
-        # Parameter validation
-        if veh['mass_kg'] <= 0 or veh['eta_drive'] <= 0 or veh['eta_drive'] > 1:
-            st.error("Invalid vehicle parameters")
-            st.stop()
-            
-    except (ValueError, TypeError) as e:
-        st.error(f"Error in vehicle parameters: {e}")
-        st.stop()
-
-    # Limit candidate speeds by user_speed_limit
-    candidates = [v for v in candidate_speeds if v <= user_speed_limit]
-    if not candidates:
-        candidates = [user_speed_limit]
+    # Environment pack for calculations
+    env = dict(headwind_ms=headwind_ms, temp_c=ambient_temp_c, rain=is_raining)
 
     # Evaluate with progress bar (with segmented speeds)
     results = []
     fastest_t = None
-    
+
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     for i, v in enumerate(candidates):
         status_text.text(f"Computing for {v} km/h (with per-segment limits)...")
         progress_bar.progress((i + 1) / len(candidates))
-        
+
         try:
-            # Utiliser des vitesses segmentées si activé, sinon vitesse constante
             if use_segmented_speeds and steps and detailed_segments:
-                # Créer des vitesses segmentées basées sur les types de route
                 segmented_speeds = create_segmented_speeds(coords, steps, detailed_segments, v, user_speed_limit, min_speed_delta)
-                
-                # Appliquer des ralentissements aux carrefours
                 if intersection_data["slowdown_points"]:
-                    # Reduce speed at slowdown points (intersections, roundabouts, sharp turns)
                     for slowdown in intersection_data["slowdown_points"]:
                         step_idx = slowdown.get("step_index", 0)
-                        # Estimer l'index approximatif dans les coordonnées
-                        # Approximation basée sur la proportion des steps
                         if steps and len(steps) > 0:
                             coord_ratio = step_idx / max(len(steps), 1)
                             coord_idx = min(int(coord_ratio * (len(coords) - 1)), len(segmented_speeds) - 1)
                             if 0 <= coord_idx < len(segmented_speeds):
-                                # Reduce speed by ~30% at intersections
                                 segmented_speeds[coord_idx] = max(segmented_speeds[coord_idx] * 0.7, 30)
-                
-                # Utiliser les vitesses segmentées pour le calcul
-                E_Wh, T_h, D_km = route_energy_time(coords, elevations, segmented_speeds, **veh)
-                
-                # Calculer la vitesse moyenne pour l'affichage
+                (E_Wh, T_h, D_km), _ = route_energy_time_detailed(coords, elevations, segmented_speeds, env, **veh)
                 avg_speed = sum(segmented_speeds) / len(segmented_speeds) if segmented_speeds else v
             else:
-                # Vitesse constante (ancienne méthode)
-                E_Wh, T_h, D_km = route_energy_time(coords, elevations, v, **veh)
+                (E_Wh, T_h, D_km), _ = route_energy_time_detailed(coords, elevations, v, env, **veh)
                 avg_speed = v
-            
+
             results.append(dict(speed=v, energy_Wh=E_Wh, time_h=T_h, dist_km=D_km, avg_speed=avg_speed))
             if fastest_t is None or T_h < fastest_t:
                 fastest_t = T_h
         except Exception as e:
             st.warning(f"Error for {v} km/h: {e}")
             continue
-    
+
     progress_bar.empty()
     status_text.empty()
 
@@ -1362,6 +1351,49 @@ if run_btn:
         st.pyplot(fig_time)
 
     st.info("Tip: Adjust 'Max speed' and the 'Max time increase' in the sidebar to see the effect on the recommendation.")
+
+    # Detailed dataframe for chosen strategy (for export and map)
+    if use_segmented_speeds and steps and detailed_segments:
+        segmented_speeds_best = create_segmented_speeds(coords, steps, detailed_segments, best['speed'], user_speed_limit, min_speed_delta)
+        (E_best, T_best, D_best), df_segments = route_energy_time_detailed(coords, elevations, segmented_speeds_best, env, **veh)
+    else:
+        (E_best, T_best, D_best), df_segments = route_energy_time_detailed(coords, elevations, best['speed'], env, **veh)
+
+    # ------------------------------
+    # Download per-segment CSV
+    # ------------------------------
+    st.markdown("#### Per-segment analytics")
+    st.dataframe(df_segments.head(20), use_container_width=True)
+    csv_bytes = df_segments.to_csv(index=False).encode('utf-8')
+    st.download_button("⬇️ Download per-segment CSV", data=csv_bytes, file_name="segments.csv", mime="text/csv")
+
+    # ------------------------------
+    # Optional interactive map (Folium)
+    # ------------------------------
+    show_map = st.checkbox("Show interactive map (per-segment colors)", value=False)
+    if show_map:
+        try:
+            import folium
+            from streamlit_folium import st_folium
+            # Center map
+            mid = len(coords)//2
+            center = [coords[mid][1], coords[mid][0]] if coords else [48.8566, 2.3522]
+            m = folium.Map(location=center, zoom_start=6)
+            # Color function by speed
+            def speed_color(v):
+                if v >= 110:
+                    return '#2ecc71'
+                if v >= 80:
+                    return '#3498db'
+                return '#e67e22'
+            # Draw segments
+            for idx, row in df_segments.iterrows():
+                v = row['speed_kmh']
+                color = speed_color(v)
+                folium.PolyLine([(row['lat1'], row['lon1']), (row['lat2'], row['lon2'])], color=color, weight=4, opacity=0.8).add_to(m)
+            st_folium(m, width=900, height=500)
+        except Exception as e:
+            st.warning(f"Map unavailable: {e}")
 
 else:
     st.info("Enter an origin and a destination, provide your ORS key, then click *Compute advised speed*.")
