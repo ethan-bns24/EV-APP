@@ -728,17 +728,38 @@ def create_segmented_speeds(coords, steps, detailed_segments, candidate_speed: i
 # ------------------------------
 # OpenRouteService API wrappers
 # ------------------------------
+
+# Fallback local pour géocodage en cas d’échec réseau (villes les plus utilisées)
+CITY_COORDS = {
+    "paris, france": [2.3522, 48.8566],
+    "lyon, france": [4.8357, 45.7640],
+    "marseille, france": [5.3698, 43.2965],
+    "beauvais, france": [2.0833, 49.4333],
+    "toulouse, france": [1.4442, 43.6047],
+    "nantes, france": [-1.5536, 47.2184],
+}
+
 def ors_geocode(text, api_key):
     url = "https://api.openrouteservice.org/geocode/search"
     params = {"api_key": api_key, "text": text, "size": 1}
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    data = r.json()
-    feats = data.get("features", [])
-    if not feats:
+    try:
+        r = requests.get(url, params=params, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        feats = data.get("features", [])
+        if not feats:
+            raise ValueError("no_features")
+        lon, lat = feats[0]["geometry"]["coordinates"]
+        return [lon, lat]
+    except Exception:
+        # Fallback statique (sans réseau)
+        key = (text or "").strip().lower()
+        if key in CITY_COORDS:
+            return CITY_COORDS[key]
+        # Essayer aussi sans ", france"
+        if key.endswith(", france") and key.replace(", france", "") in CITY_COORDS:
+            return CITY_COORDS[key.replace(", france", "")]
         return None
-    lon, lat = feats[0]["geometry"]["coordinates"]
-    return [lon, lat]
 
 def ors_route_steps(start_lonlat, end_lonlat, api_key):
     """Récupère les étapes (instructions) ORS pour estimer les carrefours/ralentissements."""
@@ -775,56 +796,60 @@ def ors_route(start_lonlat, end_lonlat, api_key, include_instructions=False):
         "elevation": False,  # récupérer d'abord la géométrie pure, élévation ensuite
         "instructions": include_instructions
     }
-    # Demander un retour GeoJSON côté API pour éviter tout décodage polyline
-    r = requests.post(url, headers=headers, params={"format": "geojson"}, data=json.dumps(body), timeout=60)
-    r.raise_for_status()
-    data = r.json()
-    
-    # Extract geometry with better error handling
     try:
-        coords = []
-        length_m = 0
-        duration_s = 0
+        r = requests.post(url, headers=headers, params={"format": "geojson"}, data=json.dumps(body), timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        
+        # Extract geometry with better error handling
+        try:
+            coords = []
+            length_m = 0
+            duration_s = 0
 
-        if "routes" in data and data["routes"]:
-            route = data["routes"][0]
-            geometry = route.get("geometry")
-            if isinstance(geometry, dict) and geometry.get("type") == "LineString":
-                coords = geometry.get("coordinates", [])
-            elif isinstance(geometry, str) and geometry:
-                try:
-                    import polyline
-                    decoded = polyline.decode(geometry)
-                    # polyline returns [(lat, lon)], we convert to [lon, lat]
-                    coords = [[lon, lat] for (lat, lon) in decoded]
-                except Exception:
-                    coords = []
-            summary = route.get("summary", {})
-            length_m = summary.get("distance", 0)
-            duration_s = summary.get("duration", 0)
-        elif "features" in data and data["features"]:
-            feature = data["features"][0]
-            geometry = feature.get("geometry", {})
-            if isinstance(geometry, dict) and geometry.get("type") == "LineString":
-                coords = geometry.get("coordinates", [])
-            props = feature.get("properties", {})
-            if isinstance(props, dict):
-                segments = props.get("segments", [])
-                if segments:
-                    summary = segments[0].get("summary", {})
-                    length_m = summary.get("distance", 0)
-                    duration_s = summary.get("duration", 0)
+            if "routes" in data and data["routes"]:
+                route = data["routes"][0]
+                geometry = route.get("geometry")
+                if isinstance(geometry, dict) and geometry.get("type") == "LineString":
+                    coords = geometry.get("coordinates", [])
+                elif isinstance(geometry, str) and geometry:
+                    try:
+                        import polyline
+                        decoded = polyline.decode(geometry)
+                        # polyline returns [(lat, lon)], we convert to [lon, lat]
+                        coords = [[lon, lat] for (lat, lon) in decoded]
+                    except Exception:
+                        coords = []
+                summary = route.get("summary", {})
+                length_m = summary.get("distance", 0)
+                duration_s = summary.get("duration", 0)
+            elif "features" in data and data["features"]:
+                feature = data["features"][0]
+                geometry = feature.get("geometry", {})
+                if isinstance(geometry, dict) and geometry.get("type") == "LineString":
+                    coords = geometry.get("coordinates", [])
+                props = feature.get("properties", {})
+                if isinstance(props, dict):
+                    segments = props.get("segments", [])
+                    if segments:
+                        summary = segments[0].get("summary", {})
+                        length_m = summary.get("distance", 0)
+                        duration_s = summary.get("duration", 0)
 
-        if not coords:
-            st.warning("Géométrie non disponible, fallback sur départ/arrivée")
-            coords = [start_lonlat, end_lonlat]
+            if not coords:
+                st.warning("Géométrie non disponible, fallback sur départ/arrivée")
+                coords = [start_lonlat, end_lonlat]
 
-        return coords, length_m, duration_s
+            return coords, length_m, duration_s
 
-    except (KeyError, IndexError, ValueError) as e:
-        st.error(f"Erreur lors de l'extraction des données de l'itinéraire: {e}")
-        st.error(f"Réponse API: {json.dumps(data, indent=2)}")
-        return [], 0, 0
+        except (KeyError, IndexError, ValueError) as e:
+            st.error(f"Erreur lors de l'extraction des données de l'itinéraire: {e}")
+            st.error(f"Réponse API: {json.dumps(data, indent=2)}")
+            return [], 0, 0
+    except Exception:
+        # Fallback hors réseau: ligne droite départ→arrivée
+        st.warning("ORS indisponible – fallback simplifié (ligne droite)")
+        return [start_lonlat, end_lonlat], 0, 0
 
 def ors_elevation_along(coords, api_key):
     # If directions include z as third coordinate, extract it directly.
