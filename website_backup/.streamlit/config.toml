@@ -1,7 +1,0 @@
-[server]
-runOnSave = true
-fileWatcherType = "auto"  # utiliser "poll" si nécessaire
-port = 8502
-
-
-
