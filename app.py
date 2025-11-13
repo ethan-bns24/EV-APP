@@ -5,6 +5,8 @@ import requests
 import streamlit as st
 import matplotlib.pyplot as plt
 import pandas as pd
+import folium
+from streamlit_folium import st_folium
 from typing import List, Tuple, Dict, Optional
 import concurrent.futures
 from functools import lru_cache
@@ -18,14 +20,11 @@ st.set_page_config(page_title="EV Eco-Speed Advisory App", layout="wide", page_i
 # Clé ORS par défaut (peut être surchargée par st.secrets ou l'environnement)
 DEFAULT_ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjA5MDkyNTdkYTlmNzQ5NmNhNjMxNzVjZGM1NTE0ZWYzIiwiaCI6Im11cm11cjY0In0="
 
-# Helper: lire la clé (secrets si dispo, sinon env, sinon défaut)
+CHARGING_STOP_DURATION_MIN = 20  # Durée moyenne d'une recharge (minutes)
+
+# Helper: lire la clé uniquement depuis l'ENV (ou utiliser la valeur par défaut).
+# Aucun accès à st.secrets pour éviter l'erreur "No secrets found".
 def get_ors_key() -> str:
-    try:
-        # st.secrets n'existe pas forcément en local; on encapsule dans un try/except
-        if hasattr(st, "secrets") and "OPENROUTESERVICE_API_KEY" in st.secrets:  # type: ignore[attr-defined]
-            return str(st.secrets["OPENROUTESERVICE_API_KEY"])  # type: ignore[index]
-    except Exception:
-        pass
     return os.environ.get("OPENROUTESERVICE_API_KEY", DEFAULT_ORS_API_KEY)
 
 # Style global des graphiques
@@ -1163,6 +1162,8 @@ if run_btn:
     total_up_m = 0.0
     total_down_m = 0.0
     max_abs_slope_pct = 0.0
+    total_distance_m = 0.0
+    slope_abs_sum_m = 0.0
     for i in range(1, len(elevations)):
         dh = elevations[i] - elevations[i-1]
         if dh > 0:
@@ -1182,6 +1183,9 @@ if run_btn:
             slope_pct = abs((elevations[i] - elevations[i-1]) / d) * 100.0
             if slope_pct > max_abs_slope_pct:
                 max_abs_slope_pct = slope_pct
+            total_distance_m += d
+            slope_abs_sum_m += abs(elevations[i] - elevations[i-1])
+    mean_abs_slope_pct = (slope_abs_sum_m / total_distance_m * 100.0) if total_distance_m > 0 else 0.0
 
     # ------------------------------
     # Carrefours / ralentissements estimés via instructions ORS (amélioré)
@@ -1242,7 +1246,6 @@ if run_btn:
 
     # Evaluate with progress bar (with segmented speeds)
     results = []
-    fastest_t = None
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -1280,10 +1283,27 @@ if run_btn:
                 # Vitesse constante (ancienne méthode)
                 E_Wh, T_h, D_km = route_energy_time(coords, elevations, v, **veh)
                 avg_speed = v
+
+            energy_kwh_candidate = E_Wh / 1000.0
+            charge_info_candidate = calculate_charging_stops(
+                battery_kwh, energy_kwh_candidate, battery_start_pct, battery_end_pct
+            )
+            charging_time_min_candidate = charge_info_candidate["num_stops"] * CHARGING_STOP_DURATION_MIN
+            total_time_min_candidate = T_h * 60.0 + charging_time_min_candidate
             
-            results.append(dict(speed=v, energy_Wh=E_Wh, time_h=T_h, dist_km=D_km, avg_speed=avg_speed))
-            if fastest_t is None or T_h < fastest_t:
-                fastest_t = T_h
+            results.append(
+                dict(
+                    speed=v,
+                    energy_Wh=E_Wh,
+                    time_h=T_h,
+                    dist_km=D_km,
+                    avg_speed=avg_speed,
+                    energy_kwh=energy_kwh_candidate,
+                    charge_info=charge_info_candidate,
+                    charging_time_min=charging_time_min_candidate,
+                    total_time_min=total_time_min_candidate
+                )
+            )
         except Exception as e:
             st.warning(f"Error for {v} km/h: {e}")
             continue
@@ -1291,11 +1311,18 @@ if run_btn:
     progress_bar.empty()
     status_text.empty()
 
+    if not results:
+        st.error("No valid result found")
+        st.stop()
+
+    fastest_total_min = min(r["total_time_min"] for r in results)
+    fastest_total_h = fastest_total_min / 60.0 if fastest_total_min else 0.0
+
     # Apply selection rule
-    # 1) Feasible set under time penalty constraint
-    if fastest_t is not None:
-        max_time_h = fastest_t * (1 + max_time_penalty_pct/100.0)
-        feasible = [r for r in results if r["time_h"] <= max_time_h]
+    # 1) Feasible set under time penalty constraint (based on total time including charges)
+    if fastest_total_h > 0:
+        max_time_h = fastest_total_h * (1 + max_time_penalty_pct/100.0)
+        feasible = [r for r in results if (r["total_time_min"] / 60.0) <= max_time_h]
         if not feasible:
             feasible = results[:]  # fallback
     else:
@@ -1306,23 +1333,19 @@ if run_btn:
         st.stop()
     
     if minimize_target == "Minimize energy under time constraint":
-        best = min(feasible, key=lambda r: r["energy_Wh"])
+        best = min(feasible, key=lambda r: (r["energy_Wh"], r["total_time_min"]))
     else:
         # Normalize energy and time for a simple E + λT scoring
         E_min, E_max = min(r["energy_Wh"] for r in feasible), max(r["energy_Wh"] for r in feasible)
-        T_min, T_max = min(r["time_h"] for r in feasible), max(r["time_h"] for r in feasible)
+        T_min, T_max = min(r["total_time_min"] for r in feasible), max(r["total_time_min"] for r in feasible)
         def norm(x, a, b): return 0.0 if a==b else (x-a)/(b-a)
         best = min(
             feasible,
-            key=lambda r: norm(r["energy_Wh"], E_min, E_max) + lam * norm(r["time_h"], T_min, T_max)
+            key=lambda r: norm(r["energy_Wh"], E_min, E_max) + lam * norm(r["total_time_min"], T_min, T_max)
         )
 
     # Baseline (fastest among candidates)
-    if results:
-        fastest = min(results, key=lambda r: r["time_h"])
-    else:
-        st.error("Aucun résultat disponible")
-        st.stop()
+    fastest = min(results, key=lambda r: r["total_time_min"])
 
     # ------------------------------
     # Output metrics
@@ -1330,12 +1353,21 @@ if run_btn:
     st.markdown("### 2) Results")
     
     # Calcul du nombre de recharges nécessaires
-    energy_needed_kwh = best['energy_Wh'] / 1000
-    charge_info = calculate_charging_stops(battery_kwh, energy_needed_kwh, battery_start_pct, battery_end_pct)
+    energy_needed_kwh = best['energy_kwh']
+    charge_info = best['charge_info']
     
     # Energy cost
     energy_cost_per_kwh = st.sidebar.number_input("Electricity cost (€/kWh)", 0.10, 0.50, 0.20, 0.01)
     energy_cost = energy_needed_kwh * energy_cost_per_kwh
+    charging_time_min = best['charging_time_min']
+    best_driving_time_min = best['time_h'] * 60
+    best_total_time_min = best['total_time_min']
+    
+    fastest_energy_kwh = fastest["energy_kwh"]
+    fastest_charge_info = fastest["charge_info"]
+    fastest_charging_time_min = fastest["charging_time_min"]
+    fastest_total_time_min = fastest["total_time_min"]
+    fastest_driving_time_min = fastest["time_h"] * 60
     
     # Battery at departure and calculated for arrival
     battery_start_kwh = battery_kwh * (battery_start_pct / 100.0)
@@ -1356,14 +1388,15 @@ if run_btn:
     colA, colB, colC, colD = st.columns(4)
     colA.metric("Advised speed", f"{best['speed']} km/h")
     colB.metric("Estimated energy", f"{energy_needed_kwh:.2f} kWh")
-    colC.metric("Travel time", f"{best['time_h']*60:.1f} min")
-    colD.metric("Distance", f"{best['dist_km']:.1f} km")
+    colC.metric("Driving time", f"{best_driving_time_min:.1f} min")
+    colD.metric("Total time (incl. charges)", f"{best_total_time_min:.1f} min", help=f"Ajoute {charging_time_min:.1f} min de recharge estimée")
 
     # Relief and intersections block
-    colR1, colR2, colR3 = st.columns(3)
+    colR1, colR2, colR3, colR4 = st.columns(4)
     colR1.metric("Elevation gain", f"{total_up_m:.0f} m")
     colR2.metric("Elevation loss", f"{total_down_m:.0f} m")
     colR3.metric("Max slope (abs)", f"{max_abs_slope_pct:.1f} %")
+    colR4.metric("Mean slope (abs)", f"{mean_abs_slope_pct:.2f} %", help="Moyenne pondérée du pourcentage de pente absolu sur l'ensemble du trajet")
 
     st.caption("Detected intersections/slowdowns (improved analysis)")
     col_int1, col_int2 = st.columns(2)
@@ -1376,11 +1409,12 @@ if run_btn:
             st.info(f"ℹ️ Actual average speed on the route: {best['avg_speed']:.1f} km/h (base advised speed: {best['speed']} km/h)")
     
     # New metrics with charging
-    colE, colF, colG, colH = st.columns(4)
+    colE, colF, colG, colH, colI = st.columns(5)
     colE.metric("Energy cost", f"{energy_cost:.2f} €")
-    colF.metric("🔌 Required charges", f"{charge_info['num_stops']}", help="Number of charges to plan")
-    colG.metric("Battery after trip", f"{battery_end_pct_calc:.1f}%")
-    colH.metric("Consumption", f"{energy_needed_kwh/best['dist_km']:.2f} kWh/km")
+    colF.metric("🔌 Required charges", f"{charge_info['num_stops']}", help=f"Nombre d'arrêts de recharge ({CHARGING_STOP_DURATION_MIN} min chacun)")
+    colG.metric("Charging time", f"{charging_time_min:.1f} min")
+    colH.metric("Battery after trip", f"{battery_end_pct_calc:.1f}%")
+    colI.metric("Consumption", f"{(energy_needed_kwh / best['dist_km']) if best['dist_km'] else 0:.2f} kWh/km")
     
     # Charging result display
     if charge_info['num_stops'] == 0:
@@ -1401,13 +1435,37 @@ if run_btn:
     elif energy_needed_kwh > veh['battery_kwh'] * 0.8:
         st.warning("⚠️ High consumption. Trip is possible but risky.")
 
+    # ------------------------------
+    # Route map visualization
+    # ------------------------------
+    route_latlons = []
+    for pt in coords:
+        try:
+            lon, lat = pt[0], pt[1]
+        except (TypeError, IndexError):
+            continue
+        route_latlons.append((lat, lon))
+    if route_latlons:
+        st.markdown("#### Route map preview")
+        try:
+            midpoint = route_latlons[len(route_latlons) // 2]
+            route_map = folium.Map(location=midpoint, zoom_start=6, tiles="CartoDB Positron", control_scale=True)
+            folium.PolyLine(route_latlons, color="#1f77b4", weight=5, opacity=0.85).add_to(route_map)
+            folium.Marker(route_latlons[0], tooltip="Départ", icon=folium.Icon(color="green", icon="play", prefix="fa")).add_to(route_map)
+            folium.Marker(route_latlons[-1], tooltip="Arrivée", icon=folium.Icon(color="red", icon="flag", prefix="fa")).add_to(route_map)
+            route_map.fit_bounds(route_latlons)
+            st_folium(route_map, width=None, height=520, returned_objects=[])
+        except Exception as map_err:
+            if debug_mode:
+                st.warning(f"[DEBUG] Impossible d'afficher la carte: {map_err}")
+
     # Savings vs fastest
     dE_Wh = best["energy_Wh"] - fastest["energy_Wh"]
-    dT_min = (best["time_h"] - fastest["time_h"]) * 60
+    dT_min = best_total_time_min - fastest_total_time_min
     st.markdown("#### Impact vs fastest driving (among your candidate speeds)")
     c1, c2 = st.columns(2)
     c1.metric("Energy saved", f"{-dE_Wh/1000:.2f} kWh" if dE_Wh<0 else f"+{dE_Wh/1000:.2f} kWh")
-    c2.metric("Time added", f"{dT_min:.1f} min")
+    c2.metric("Time added", f"{dT_min:.1f} min", help="Inclut le temps supplémentaire dû aux recharges estimées")
 
     # ------------------------------
     # Table results
@@ -1417,8 +1475,11 @@ if run_btn:
     df = pd.DataFrame([
         dict(
             Speed_kmh=r["speed"],
-            Energy_kWh=r["energy_Wh"]/1000.0,
-            Time_min=r["time_h"]*60.0
+            Energy_kWh=r["energy_kwh"],
+            Driving_time_min=r["time_h"]*60.0,
+            Charging_time_min=r["charging_time_min"],
+            Total_time_min=r["total_time_min"],
+            Charges=r["charge_info"]["num_stops"]
         ) for r in results
     ]).sort_values("Speed_kmh")
     st.dataframe(df, use_container_width=True)
@@ -1428,9 +1489,12 @@ if run_btn:
     # ------------------------------
     col_graph1, col_graph2 = st.columns(2)
 
-    # Feasible mask under time constraint
-    max_time_h = fastest_t * (1 + max_time_penalty_pct/100.0) if fastest_t is not None else None
-    feasible_speeds = set(r["speed"] for r in results if max_time_h is None or r["time_h"] <= max_time_h)
+    # Feasible mask under time constraint (based on total time including charges)
+    max_time_total_min = fastest_total_min * (1 + max_time_penalty_pct/100.0) if fastest_total_min else None
+    feasible_speeds = set(
+        r["speed"] for r in results
+        if max_time_total_min is None or r["total_time_min"] <= max_time_total_min
+    )
 
     with col_graph1:
         fig_energy, ax = plt.subplots(figsize=(8.5, 5.2))
@@ -1457,23 +1521,23 @@ if run_btn:
 
     with col_graph2:
         fig_time, ax = plt.subplots(figsize=(8.5, 5.2))
-        yT = df["Time_min"].values
+        yT = df["Total_time_min"].values
         ax.plot(x, yT, color="#95a5a6", linewidth=1.0, linestyle="--", alpha=0.6)
         ax.scatter(x, yT, s=100, c=["#2ecc71" if int(s) in feasible_speeds else "#e67e22" for s in x], alpha=0.85, edgecolors='black', linewidth=0.8)
-        ax.scatter(best["speed"], best["time_h"]*60, s=220, c="#e74c3c", marker='*', edgecolors='black', linewidth=0.8, zorder=5)
+        ax.scatter(best["speed"], best_total_time_min, s=220, c="#e74c3c", marker='*', edgecolors='black', linewidth=0.8, zorder=5)
         ax.annotate(
-            f"Best: {best['speed']} km/h\n{best['time_h']*60:.1f} min",
-            xy=(best["speed"], best["time_h"]*60), xycoords='data',
+            f"Best: {best['speed']} km/h\n{best_total_time_min:.1f} min",
+            xy=(best["speed"], best_total_time_min), xycoords='data',
             xytext=(15, -25), textcoords='offset points',
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#e74c3c", lw=1),
             arrowprops=dict(arrowstyle="->", color="#e74c3c")
         )
-        if max_time_h is not None:
-            ax.axhline(max_time_h*60.0, color="#2ecc71", linestyle=":", linewidth=1.2, alpha=0.8, label="Max allowed time")
+        if max_time_total_min is not None:
+            ax.axhline(max_time_total_min, color="#2ecc71", linestyle=":", linewidth=1.2, alpha=0.8, label="Max allowed total time")
             ax.legend(loc="best", fontsize=10)
         ax.set_xlabel("Speed (km/h)", fontsize=12, fontweight='bold')
-        ax.set_ylabel("Time (minutes)", fontsize=12, fontweight='bold')
-        ax.set_title("⏱️ Time vs Speed (green = feasible)", fontsize=13, pad=12)
+        ax.set_ylabel("Total time (minutes)", fontsize=12, fontweight='bold')
+        ax.set_title("⏱️ Total time vs Speed (green = feasible)", fontsize=13, pad=12)
         ax.grid(True, alpha=0.25, linestyle=':')
         plt.tight_layout()
         st.pyplot(fig_time)
